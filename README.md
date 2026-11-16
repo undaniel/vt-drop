@@ -1,111 +1,60 @@
 # VTDrop
 
-Widget flotante, sin instalador y sin privilegios de administrador, para escanear archivos con VirusTotal. Arrastra uno o varios archivos sobre el círculo del escudo: VTDrop calcula el SHA-256, consulta el informe y muestra el ratio de detecciones en una cápsula. Un clic en la cápsula abre el informe en el navegador.
+**Arrastra un archivo sobre el círculo. VirusTotal te dice si es seguro.**
 
-## Estado actual
+Widget flotante para Windows 10/11: sin instalador, sin servicios, sin privilegios de administrador. Un solo `.exe` de 1.6 MiB.
 
-- **Forma propia**: círculo en reposo que se transforma en cápsula al mostrar un resultado. Se dibuja con alfa por píxel sobre `Windows.UI.Composition` (o Direct2D + DirectComposition v1 como respaldo). DWM no añade esquinas, borde ni fondo. Al pasar el mouse o un archivo por encima, el contorno toma el color de acento. En Windows 11 con transparencias activas, el círculo y la cápsula tienen acrílico real (`CreateHostBackdropBrush`).
-- **Motion Fluent**: curva de WinUI `cubic-bezier(0,0,0,1)` y duraciones de WinUI: 250 ms al expandir, 167 ms al colapsar y en los hover. El texto entra después del panel con fundido y un deslizamiento de 8 px. El ratio cuenta hacia arriba y el color pasa del acento al verde, ámbar o rojo. El anillo de progreso imita al de WinUI: el arco gira, y en modo indeterminado lo hace el propio compositor.
-- **Animaciones del compositor**: la expansión, el colapso, el hover y el anillo los ejecuta DWM en su hilo, a la frecuencia real del monitor (60/120/144 Hz), aunque el hilo de UI esté ocupado con el menú. En reposo no hay timers ni hilos de animación.
-- **Una sola redimensión por transición**: al expandir o colapsar, la ventana toma una vez su tamaño final. Después solo se animan visuales, sin `SetWindowPos`.
-- **Soltar archivos en cualquier momento**: en reposo, con un resultado o un error visible, mientras escanea o mientras pregunta si subir. Durante un escaneo, los archivos nuevos se suman al lote en curso y el contador crece al instante (`1/2`, `2/3`…).
-- **Cancelar**: al pasar el mouse sobre el círculo mientras escanea aparece un ✕; un clic cancela. También desde el menú contextual (**Cancelar análisis**). El hash y la subida se cortan a mitad de lectura.
-- **Progreso real**:
-  - `42%` en el centro al calcular el hash de archivos ≥ 16 MB y al subir.
-  - Tiempo transcurrido (`1:05`) mientras VirusTotal analiza una subida, porque ahí no existe un porcentaje.
-  - El tooltip explica en qué paso va.
-- **Resultado que no se pierde**: la cápsula solo se cierra tras `auto_close_secs` en los que estuviste usando el PC y sin el mouse encima. Si el análisis termina mientras no estás, sigue visible al volver. Debajo del ratio aparece el veredicto: *Sin detecciones*, *Sospechoso* o *Malicioso*.
-- **VirusTotal**:
-  - Límite de ventana deslizante: como máximo N peticiones en cualquier minuto, conservado entre lotes. La consulta y la subida salen seguidas, y varios archivos conocidos se resuelven a la vez.
-  - Reintento ante 429 respetando `Retry-After`.
-  - Los archivos subidos se revisan en segundo plano cada 15 s, durante un máximo de 10 min, mientras se procesan los siguientes.
-  - Los archivos de más de 650 MB se rechazan antes de pedir la subida.
-- **Sistema**:
-  - API key cifrada con DPAPI.
-  - Instancia única, inicio con Windows y toasts de resumen.
-  - DPI PerMonitorV2.
-  - Tema de apps claro/oscuro (`AppsUseLightTheme`) y color de acento, con cambio en caliente.
-  - Respeta "Efectos de animación" de Windows.
+*A tiny floating Windows widget that scans dropped files with VirusTotal.*
 
-Medido con el renderer de respaldo en Windows 11 26300 (x64, 1920×1080 al 100 %, iGPU Intel, WARP), 2026-11-16. El backend de `Windows.UI.Composition` está pendiente de medir (ver `MIGRACION_COMPOSITION.md`):
+[![CI](https://github.com/undaniel/vt-drop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/undaniel/vt-drop/actions/workflows/ci.yml)
+[![Licencia: MIT](https://img.shields.io/badge/licencia-MIT-3da639)](LICENSE)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%202004%2B%20%7C%2011-0078D6)](#requisitos)
+[![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-dea584)](Cargo.toml)
+[![exe](https://img.shields.io/badge/exe-1.6%20MiB-5c6ac4)](#rendimiento)
 
-| Métrica | Valor |
-|---|---|
-| `vtdrop.exe` release | **1.61 MiB** (1 689 088 bytes) |
-| Working set en reposo | **~0.3–0.4 MB** tras el trim |
-| Private bytes en frío | **~7.2 MB** |
-| Private bytes tras un escaneo | **~14–17 MB** (TLS y WinRT cargados) |
-| Working set con un resultado visible | ~40 MB (superficies de WARP/DComp); vuelve a < 1 MB al cerrarse |
-| CPU en reposo | **0 ms** en 10 s, también con un resultado visible |
-| CPU de un escaneo de archivo conocido | ~0.1 s en total (arranque, hash, consulta y expansión) |
-| Dependencias externas | Solo DLLs del sistema (D3D11/WARP, D2D1, DWrite, DWM, comctl32…) |
+![VTDrop mostrando el resultado de notepad.exe: 0/71, sin detecciones](docs/preview.png)
 
-> El renderer de respaldo elige WARP primero porque el driver de la GPU añadía por sí solo decenas de MB de memoria privada en esta máquina. El backend de composición usa el dispositivo de hardware, porque `CreateGraphicsDevice` trabaja con el mismo dispositivo Direct2D que dibuja las superficies de texto.
+VTDrop calcula el SHA-256 del archivo, consulta el informe y transforma el círculo en una cápsula con el ratio de detecciones. Un clic abre el informe en el navegador. Si VirusTotal no conoce el archivo, pregunta antes de subirlo.
 
-## Compilar
+## Requisitos
 
-### Rust y toolchain
+- Windows 10 2004 (build 19041) o Windows 11, x64.
+- Una API key gratuita de [VirusTotal](https://www.virustotal.com/gui/my-apikey) (4 peticiones por minuto en el plan público).
 
-Probado con Rust stable 1.100 (2026-11) y Windows 11.
+## Instalación
 
-**GNU (sin administrador; modo usado para las medidas):**
+No hay instalador: descarga `vtdrop.exe` de la última [release](https://github.com/undaniel/vt-drop/releases) y ejecútalo desde donde quieras. El binario no está firmado, así que SmartScreen puede pedir confirmación la primera vez (*Más información → Ejecutar de todas formas*).
 
-1. Instala Rust GNU (`stable-x86_64-pc-windows-gnu`) con rustup.
-2. Instala WinLibs (GCC + binutils + `windres`) y añade su `bin` al `PATH`.
-3. En esta máquina ambas rutas ya están en el `PATH` de usuario:
-   - `%USERPROFILE%\.cargo\bin`
-   - `%LOCALAPPDATA%\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_...\mingw64\bin`
-
-```powershell
-cargo build --release
-.\target\release\vtdrop.exe
-```
-
-**MSVC:**
-
-Instala Visual Studio Build Tools con "Desarrollo para el escritorio con C++" y Windows SDK, y compila:
-
-```powershell
-rustup default stable-x86_64-pc-windows-msvc
-cargo build --release
-```
-
-`build.rs` incrusta el icono y el manifest con `embed-resource`. En GNU se incrusta solo el icono, porque MinGW-W64 14 añade su propio manifest `longPathAware` y el linker descarta uno de los dos si se incrusta otro. Por eso, en GNU el DPI se activa con `SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)` antes de crear la ventana. En MSVC el manifest incluye DPI, `asInvoker`, long paths y Common Controls v6. El comportamiento es el mismo.
-
-### Tamaño y perfiles
-
-`Cargo.toml` usa `opt-level="z"`, LTO, `codegen-units=1`, `strip=true`, `panic="abort"` e `incremental=false`.
-
-## API key
-
-1. Crea una cuenta en <https://www.virustotal.com/> y copia la clave en <https://www.virustotal.com/gui/my-apikey>.
-2. En el primer arranque, VTDrop pide la clave en una ventana estilo Fluent: acrílico, Segoe UI Variable, campo redondeado y aviso si la clave no es válida. Admite `Ctrl+V`, flechas, `Supr` y `Enter`.
-3. Se guarda cifrada con DPAPI en `%APPDATA%\VTDrop\config` (blob binario ligado al usuario). El resto de ajustes está en `%APPDATA%\VTDrop\config.json`.
-4. La clave nunca se escribe en JSON, logs ni argumentos de proceso. Para cambiarla: clic derecho → **Configurar API key…**.
-
-La API pública de VirusTotal admite 4 peticiones por minuto (y 500 al día). El valor por defecto de VTDrop es 4 y se cambia en el JSON (`requests_per_minute`).
+Cada tag `v*` publica automáticamente un `.zip` con el ejecutable, el README y la licencia. Para compilarlo tú mismo, ver [Compilar](#compilar).
 
 ## Uso
 
-- **Arrastrar archivos** desde el Explorador sobre el círculo. Se aceptan varios y en cualquier momento. Mientras escanea, el círculo brilla y los archivos se suman al lote.
-- **Clic en el resultado**: abre `https://www.virustotal.com/gui/file/<sha256>`.
-- **Clic en el círculo mientras escanea**: cancela. El ✕ aparece al pasar el mouse.
-- **Clic derecho**: menú contextual nativo de Windows (`HMENU`) con *Cancelar análisis* (solo mientras escanea), *Siempre encima*, *Iniciar con Windows*, *Configurar API key…*, *Abrir último resultado* y *Salir*. Usa la tipografía, el modo oscuro y el teclado del sistema.
-- **Arrastrar el círculo**: mueve el widget. La posición se guarda al soltar.
-- **Línea de comandos**: `vtdrop.exe <archivo>…` analiza esos archivos al arrancar (sirve para "Abrir con"). Si VTDrop ya está abierto, los argumentos se ignoran.
-- **Carpetas**: se ignoran por defecto. Para recorrerlas, pon `"scan_folders": true` en `config.json`.
-- **Subida**: si VirusTotal no conoce el archivo (404), aparece una cápsula con ✓/✕ y el aviso de que el archivo será visible para otros usuarios de VirusTotal. Nunca se sube sin confirmar. `"auto_upload": true` es un opt-in explícito que evita la pregunta.
-- **Pasar el mouse** mientras escanea o sobre un error muestra un tooltip con el paso actual o el detalle del error.
+| Acción | Resultado |
+|---|---|
+| Arrastrar archivos sobre el círculo | Los analiza. Varios a la vez y también durante un escaneo |
+| Clic en la cápsula | Abre `virustotal.com/gui/file/<sha256>` |
+| Clic en el ✕ (aparece con el mouse encima mientras escanea) | Cancela el hash y la subida en el acto |
+| Clic derecho | Menú contextual nativo: *Siempre encima*, *Iniciar con Windows*, *Configurar API key…*, *Abrir último resultado*, *Salir* |
+| Arrastrar el círculo | Mueve el widget y guarda la posición |
+| `vtdrop.exe <archivo>…` | Analiza esos archivos al arrancar (útil para *Abrir con*) |
+| Mouse encima | Tooltip con el paso actual o el detalle del error |
 
-### ¿Por qué tarda a veces?
+En el primer arranque, VTDrop pide la API key en un diálogo nativo. Se guarda cifrada con DPAPI en `%APPDATA%\VTDrop\config`; nunca se escribe en el JSON, en logs ni en la línea de comandos.
 
-- **Archivo que VirusTotal ya conoce**: el resultado llega en menos de 1 s (consulta medida: ~0.5 s).
-- **Archivo nuevo**: hay que subirlo y esperar el análisis. Con la API pública esos análisis van a una cola de baja prioridad y pueden tardar uno o varios minutos. VTDrop revisa cada 15 s, lo máximo que permite la cuota de 4 peticiones por minuto, y muestra el tiempo transcurrido.
-- **Archivo grande con antivirus**: puede quedarse un par de segundos con el anillo antes del `%`. Es el antivirus de Windows revisando el archivo al abrirlo.
+## Características
 
-Con varios archivos, el contador muestra `2/5`. Al final se muestra el peor ratio y un toast lista cada archivo con su resultado (hasta 8 líneas; si hay más, añade "y N más").
+- **Forma propia.** El círculo se convierte en cápsula sobre `Windows.UI.Composition`: el recorte es un `CompositionGeometricClip` y el fondo un `CreateHostBackdropBrush`, con acrílico real en Windows 11 si las transparencias están activas. DWM no añade borde ni esquinas.
+- **Motion Fluent.** Curva de WinUI `cubic-bezier(0,0,0,1)`, 250 ms al expandir y 167 ms al colapsar. Las animaciones las ejecuta DWM en su hilo, a la frecuencia real del monitor, aunque la UI esté ocupada con el menú. En reposo no hay timers ni hilos de animación.
+- **Una redimensión por transición.** La ventana toma su tamaño final una sola vez; después solo se animan visuales, sin `SetWindowPos`.
+- **Lotes.** Suelta archivos en cualquier momento: en reposo, con un resultado visible o mientras escanea. Durante un escaneo se suman al lote y el contador crece al instante (`1/2`, `2/3`…).
+- **Progreso real.** `42%` al calcular el hash (archivos ≥ 16 MB) y al subir; tiempo transcurrido (`1:05`) mientras VirusTotal analiza, porque ahí no existe un porcentaje.
+- **El resultado no se pierde.** La cápsula solo se cierra tras `auto_close_secs` de uso real del PC y con el mouse fuera. Si el análisis termina mientras no estás, sigue ahí al volver.
+- **VirusTotal con modales.** Ventana deslizante de peticiones (conservada entre lotes), reintento respetando `Retry-After`, sondeo cada 15 s durante 10 min y rechazo de archivos de más de 650 MB antes de subirlos.
+- **Integración con Windows.** Tema claro/oscuro con cambio en caliente, color de acento, DPI PerMonitorV2, respeto a "Efectos de animación", instancia única, inicio con Windows y toasts de resumen.
 
-## Configuración (`%APPDATA%\VTDrop\config.json`)
+## Configuración
+
+`%APPDATA%\VTDrop\config.json`:
 
 ```json
 {
@@ -121,14 +70,48 @@ Con varios archivos, el contador muestra `2/5`. Al final se muestra el peor rati
 }
 ```
 
-- `threshold_amber` / `threshold_red`: detecciones (malicious + suspicious) que dan ámbar y rojo. Por defecto: 0 → verde, 1–3 → ámbar, 4 o más → rojo.
-- `auto_close_secs`: segundos de uso del PC antes de cerrar el resultado. Con el mouse encima, o si no estás usando el PC, no corre. `0` mantiene la cápsula abierta.
-- `requests_per_minute`: 1–60. 4 es el límite público.
-- `position`: esquina superior izquierda física del círculo. Se ajusta al área de trabajo del monitor.
+| Clave | Por defecto | Qué hace |
+|---|---|---|
+| `position` | — | Esquina superior izquierda física del círculo; se ajusta al área de trabajo del monitor |
+| `always_on_top` | `true` | Mantiene el widget sobre las demás ventanas |
+| `threshold_amber` / `threshold_red` | `1` / `4` | Detecciones que pintan la cápsula de ámbar y de rojo (0 → verde) |
+| `auto_close_secs` | `8` | Segundos de uso del PC antes de cerrar el resultado; `0` lo mantiene abierto |
+| `auto_upload` | `false` | Evita la pregunta de subida (opt-in explícito) |
+| `scan_folders` | `false` | Recorre carpetas soltadas en lugar de ignorarlas |
+| `requests_per_minute` | `4` | 1–60. El plan público de VirusTotal permite 4 |
 
-La opción `backdrop` y la tecla F9 que la alternaba ya no existen: el widget dibuja su propia forma y el fondo lo compone la app. En Windows 11 con transparencias activas usa acrílico real dentro del círculo; en Windows 10 o con transparencias desactivadas, el color sólido del tema. Un `config.json` antiguo que incluya `backdrop` sigue cargando sin problema. El menú contextual y el diálogo de la API key son nativos de Win32: `HMENU` y un diálogo con `EDIT`/`BUTTON`.
+Un `config.json` antiguo que incluya `backdrop` sigue cargando: esa opción y la tecla F9 se eliminaron cuando el widget pasó a dibujar su propia forma.
+
+## Compilar
+
+Requiere Rust 1.80 o superior. No hay dependencias que compilar fuera del ecosistema de Rust: `rustls`, `windows`, `serde` y poco más.
+
+```powershell
+cargo build --release
+.\target\release\vtdrop.exe
+```
+
+**GNU (sin administrador):** instala `stable-x86_64-pc-windows-gnu` con rustup y WinLibs (GCC + binutils + `windres`) en el `PATH`.
+
+**MSVC:** instala Visual Studio Build Tools con "Desarrollo para el escritorio con C++" y el Windows SDK, y usa `stable-x86_64-pc-windows-msvc`.
+
+`build.rs` incrusta el icono y el manifiesto con `embed-resource`. MinGW-W64 14 enlaza siempre su propio manifiesto `longPathAware` y descarta cualquier otro con el mismo id, así que en GNU el manifiesto de la app se embebe como `RT_MANIFEST/2` y se activa al arrancar (`ui/styles.rs`) para tener Common Controls v6 y el tema real de los controles. En MSVC viaja como `RT_MANIFEST/1` y no hace falta nada más.
+
+El perfil de release usa `opt-level="z"`, LTO, `codegen-units=1`, `strip=true`, `panic="abort"` e `incremental=false`.
 
 ## Arquitectura
+
+```mermaid
+flowchart LR
+    Explorer[Explorador] -- "arrastrar (OLE)" --> Drop["drop_target.rs<br/>IDropTarget"]
+    Drop --> App["app.rs<br/>estado + hit-testing"]
+    App -- "canal mpsc" --> Worker["worker.rs<br/>cola, hash, red"]
+    Worker -- "WM_APP_EVENT" --> App
+    Worker --> VT["vt/<br/>API v3 + límite"]
+    App --> Comp["ui/composition.rs<br/>Windows.UI.Composition"]
+    App -. "respaldo" .-> Legacy["ui/render.rs<br/>D2D + DComp v1"]
+    VT <--> Internet((VirusTotal))
+```
 
 ```
 main.rs / lib.rs      WinMain, mutex de instancia, COM/OLE, argumentos, message loop
@@ -138,11 +121,11 @@ ui/composition.rs     Windows.UI.Composition: círculo/cápsula, acrílico, anim
 ui/render.rs          respaldo: D3D11 (WARP) + DXGI + DComposition + D2D/DWrite
 ui/animation.rs       curva Fluent, anillo WinUI, FrameClock solo para el respaldo
 ui/menu.rs            menú contextual nativo (HMENU + TrackPopupMenu)
-ui/styles.rs          activa Common Controls v6 en la build GNU (tema real de los controles)
+ui/styles.rs          Common Controls v6 en la build GNU (tema real de los controles)
 ui/tooltip.rs         tooltip propio (GDI) con fundido de entrada
 drop_target.rs        IDropTarget OLE (CF_HDROP) + fallback WM_DROPFILES
-worker.rs             hilo único: cola, hash, consultas, subida, análisis en segundo plano, cancelación
-vt/mod.rs             cliente VT API v3 (rustls), límite de ventana deslizante, reintento 429
+worker.rs             hilo único: cola, hash, consultas, subida, sondeo, cancelación
+vt/mod.rs             cliente VT API v3 (rustls), ventana deslizante, reintento 429
 hash.rs               SHA-256 en streaming (buffer de 1 MB) con progreso y corte
 config/               JSON atómico + DPAPI + diálogo nativo de API key
 toast.rs              toast WinRT con AUMID y acceso directo en Inicio
@@ -150,97 +133,106 @@ toast.rs              toast WinRT con AUMID y acceso directo en Inicio
 
 ### Máquina de estados
 
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Dragging: entrar con archivos
+    Dragging --> Idle: salir
+    Dragging --> Busy: soltar
+    Busy --> Result: VirusTotal lo conoce
+    Busy --> AskUpload: 404, archivo desconocido
+    AskUpload --> Busy: aceptar subida
+    AskUpload --> Idle: rechazar
+    Busy --> Result: termina el análisis
+    Busy --> Error: 401 / 429 / red
+    Busy --> Idle: cancelar (✕ o menú)
+    Result --> Idle: autocierre
+    Error --> Idle: autocierre
 ```
-Idle ──DragEnter──▶ Dragging ──Drop──▶ Busy(Hashing ─▶ Querying)
-  ▲                                       │        │
-  │                         404 ──────────┘        ├─ conocido ──▶ Result
-  │                          ▼                     │
-  │                     AskUpload ──✓──▶ Busy(Uploading ─▶ Polling en segundo plano)
-  │                          │ ✕                                  │
-  │                          └──────────▶ siguiente archivo ◀─────┘
-  │
-  ├──◀── autocierre (solo con el usuario presente) ◀── Result / Error
-  └──◀── Cancelar (✕ o menú) ◀── Busy / AskUpload
 
-Drop en Busy/AskUpload → se suma al lote (Queued).  Drop en Result/Error → lote nuevo.
-401/429/red → Error (cápsula gris + tooltip)
-```
+Un drop durante `Busy` o `AskUpload` se suma al lote; un drop en `Result` o `Error` empieza un lote nuevo.
 
-La UI nunca bloquea: el worker es dueño de la cola y de la red. La comunicación worker→UI es una cola `Mutex<VecDeque>` + `PostMessage(WM_APP_EVENT)`. La UI→worker usa un canal `mpsc`. La cancelación viaja como bandera atómica, para cortar el hash o la subida en el acto, y además como mensaje por el canal: todo lo que llega antes de ese mensaje pertenece al lote cancelado y se descarta.
+La UI nunca bloquea: el worker es dueño de la cola y de la red. La comunicación worker→UI es una cola `Mutex<VecDeque>` + `PostMessage(WM_APP_EVENT)`; la UI→worker usa un canal `mpsc`. La cancelación viaja como bandera atómica (para cortar el hash o la subida en el acto) y además como mensaje por el canal, de modo que todo lo que llegue antes de ese mensaje pertenece al lote cancelado y se descarta.
 
 ### Render y DPI
 
-El backend principal es `Windows.UI.Composition`. La ventana tiene un `DesktopWindowTarget` y un árbol de visuales que DWM dibuja y anima: el recorte de círculo/cápsula es un `CompositionGeometricClip`, el fondo es un `CreateHostBackdropBrush` con tinte, y cada texto (ratio, porcentaje, tiempo, avisos, botones, badge) vive en un `CompositionDrawingSurface` que solo se redibuja cuando cambia su contenido. Las animaciones de expansión/colapso usan keyframes con la curva Fluent y un `CompositionScopedBatch` avisa al colapsar.
+El backend principal es `Windows.UI.Composition`. La ventana tiene un `DesktopWindowTarget` y un árbol de visuales que DWM dibuja y anima; cada texto (ratio, porcentaje, tiempo, avisos, botones, badge) vive en un `CompositionDrawingSurface` que solo se redibuja cuando cambia su contenido. Las coordenadas van en píxeles físicos y las superficies se crean a `DPI / 96`, así que el texto queda nítido a cualquier escala; al cambiar de monitor se recrea el renderer.
 
-La ventana toma una sola vez el tamaño final por transición; después nada llama a `SetWindowPos`. Las coordenadas de composición van en píxeles físicos y las superficies se crean a `DPI / 96`, así que el texto queda nítido a cualquier escala. Al cambiar de monitor se recrea el renderer.
+En Windows 10 2004+ funciona el mismo backend con fondo sólido. El acrílico requiere Windows 11 y transparencias activas. Si `CreateDesktopWindowTarget` falla, `ui/mod.rs` cae al renderer antiguo (D3D11 WARP + DirectComposition v1 + Direct2D) sin cambiar nada más. Para forzarlo:
 
-En Windows 10 2004+ funciona el mismo backend con fondo sólido; el acrílico requiere Windows 11 y transparencias activas. Si `CreateDesktopWindowTarget` falla, `ui/mod.rs` cae al renderer antiguo (D3D11 WARP + DirectComposition v1 + Direct2D) sin cambiar el resto de la app. Para forzarlo: `VTDROP_RENDERER=legacy`. Ver [MIGRACION_COMPOSITION.md](MIGRACION_COMPOSITION.md).
+```powershell
+$env:VTDROP_RENDERER = "legacy"
+```
+
+Detalles y desviaciones en [MIGRACION_COMPOSITION.md](MIGRACION_COMPOSITION.md).
+
+## Rendimiento
+
+Medido en Windows 11 26300 (x64, 1920×1080 al 100 %, iGPU Intel, WARP), con el renderer de respaldo. La medición del backend de composición está pendiente:
+
+| Métrica | Valor |
+|---|---|
+| `vtdrop.exe` release | **1.61 MiB** (1 689 088 bytes) |
+| Working set en reposo | **~0.3–0.4 MB** tras el trim |
+| Private bytes en frío | **~7.2 MB** |
+| Private bytes tras un escaneo | **~14–17 MB** (TLS y WinRT cargados) |
+| Working set con un resultado visible | ~40 MB (superficies), vuelve a < 1 MB al cerrarse |
+| CPU en reposo | **0 ms** en 10 s, también con un resultado visible |
+| CPU de un escaneo conocido | ~0.1 s en total (arranque, hash, consulta y expansión) |
+
+El renderer de respaldo prefiere WARP porque el driver de la GPU añadía por sí solo decenas de MB de memoria privada en esta máquina. El backend de composición usa el dispositivo de hardware: `CreateGraphicsDevice` comparte el mismo `ID2D1Device` que dibuja las superficies de texto.
 
 ## Pruebas
 
-39 pruebas unitarias. Cubren hash EICAR, estadísticas, configuración, curvas de animación, continuidad del anillo, geometría del compositor (círculo → cápsula, ancla y glyph), banderas del menú nativo, el recurso del diálogo de API key, la activación de Common Controls v6 desde el manifiesto embebido, límite de peticiones, cola del lote y cancelación sin fugas al lote siguiente. Una de ellas crea un `DesktopWindowTarget` real sobre una ventana oculta y dibuja tres frames con el compositor; otra crea el diálogo nativo desde el recurso sin mostrarlo.
+39 pruebas unitarias, ejecutadas en CI sobre MSVC para cada push y pull request; la build GNU (MinGW) se compila y prueba en el mismo workflow.
 
 ```powershell
-cargo test --release
+cargo build            # las pruebas leen el .exe real para sus recursos
+cargo test
 ```
 
-Prueba en vivo contra VirusTotal con el hash de EICAR:
+Cubren hash EICAR, estadísticas, configuración, curvas de animación, continuidad del anillo, geometría del compositor (círculo → cápsula, ancla, glyph), banderas del menú, recursos del diálogo, activación de Common Controls v6, límite de peticiones, cola del lote y cancelación. Hay dos pruebas que crean objetos reales: un `DesktopWindowTarget` con tres frames dibujados y el diálogo nativo desde su plantilla. La primera se omite en CI porque el runner no tiene un escritorio con DWM.
 
-```
-275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
-```
-
-Con una key en el entorno:
+Prueba en vivo contra la API (solo consulta, no sube nada). Usa `VT_API_KEY` o la clave DPAPI que haya guardado la app:
 
 ```powershell
 $env:VT_API_KEY = "..."
 cargo test --test live_vt -- --ignored --nocapture
-```
-
-O con la key DPAPI que haya guardado la app. Sin argumentos usa EICAR, y también acepta cualquier SHA-256:
-
-```powershell
-cargo run --release --example vt_probe
 cargo run --release --example vt_probe -- <sha256>
 ```
 
-El probe solo consulta, no sube nada. Resultado real (2026-11-16, API v3):
-
-```
-EICAR SHA-256: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f
-stats: Stats { malicious: 65, suspicious: 0, undetected: 2, harmless: 0 }
-ratio: 65/67
-```
-
-Verificado con mouse y arrastres reales y capturas de pantalla (2026-11-16):
-
-- `notepad.exe` → `0/71 · Sin detecciones` ~1 s después de soltarlo.
-- Archivo de 1.5 GB → `0%` … `30%` mientras calcula el hash; luego *Demasiado grande*, sin subir nada.
-- Soltar `notepad.exe` sobre el círculo mientras escanea dos archivos grandes → `Sin detecciones · peor de 3`.
-- Escaneo de 3 GB → ✕ al pasar el mouse → clic → reposo sin errores. Soltar otro archivo después da su resultado normal.
-
 ## Seguridad y privacidad
 
-- Manifest MSVC `asInvoker`; no requiere elevación. Si se ejecutara elevado, el drag & drop desde el Explorador fallaría por UIPI.
-- La API key se cifra con `CryptProtectData` (DPAPI, entropía propia) y nunca se registra.
-- En las consultas normales solo se envía el hash. La subida (solo tras confirmar) envía el archivo completo, y VirusTotal lo hace visible a otros usuarios.
-- HTTP con rustls; sin telemetría propia.
-- Instancia única mediante un mutex con nombre local; una segunda instancia trae al frente la existente.
+- Manifiesto `asInvoker`: no pide elevación. Ejecutarlo elevado rompería el drag & drop desde el Explorador por UIPI.
+- La API key se cifra con `CryptProtectData` (DPAPI, entropía propia) y no se registra nunca.
+- En las consultas solo se envía el SHA-256. La subida, solo tras confirmarla, envía el archivo completo y lo hace visible a otros usuarios de VirusTotal.
+- HTTP con rustls, sin telemetría propia.
+- Instancia única por mutex local: una segunda ejecución trae al frente la existente.
 
-## Notas
+## Decisiones y límites
 
-- El toast requiere un acceso directo `%APPDATA%\Microsoft\Windows\Start Menu\Programs\VTDrop.lnk` con AUMID `VTDrop.Desktop`. VTDrop lo crea o actualiza al arrancar. Si Windows bloquea los toasts, el resumen sigue visible en la cápsula.
-- El menú contextual es el menú nativo de Windows (`HMENU` + `TrackPopupMenu`, en `ui/menu.rs`). Antes era un popup propio con el estilo redondeado del Explorador, pero ese estilo es XAML/WinUI y no se puede reproducir con un `HMENU`; se cambió para heredar tipografía, teclado, accesibilidad y modo oscuro del sistema. El precio es el aspecto clásico cuadrado: sin iconos ni material de vuelo.
-- El diálogo de la API key (`config/key_dialog.rs`) es un diálogo Win32 nativo (recurso `101` en `assets/vtdrop.rc`) con `STATIC`, `EDIT` y `BUTTON` reales. El sistema gestiona el cursor, `Ctrl+V`, tabulación, lector de pantalla y validación de teclado; la app solo valida la clave y la cifra con DPAPI. El campo va enmascarado y la casilla **Mostrar** lo revela.
-- Con la toolchain GNU, el enlazador impone su propio manifiesto y descarta el de la app, así que el binario se quedaba sin la dependencia de Common Controls v6 y todos los controles nativos se pintaban como en Windows 2000. `ui/styles.rs` embebe el manifiesto también como `RT_MANIFEST/2` y lo activa con `CreateActCtxW` antes de crear ventanas; así el menú y el diálogo usan el tema real claro/oscuro del sistema. En MSVC ya viene en `RT_MANIFEST/1` y la función no hace nada.
-- **Diferencias con la especificación original** (`GUIA.md`):
-  - El widget usa acrílico real dentro del círculo solo en Windows 11 con transparencias activas; en Windows 10 queda el fondo sólido del tema (DWM solo ofrece acrílico rectangular).
-  - La expansión usa la curva Fluent en vez de un rebote tipo spring.
-  - Tras subir un archivo, el análisis se revisa cada 15 s en lugar de con backoff.
-  - Se quitaron la opción `backdrop` y la tecla F9.
-  - Se añadieron cancelar, progreso y soltar durante el escaneo, que se pidieron después.
-- Pendiente: alto contraste, navegación por teclado del widget y soporte para el Narrador.
+<details>
+<summary>Por qué el menú y el diálogo son nativos de Win32</summary>
+
+El menú contextual es `HMENU` + `TrackPopupMenu` (`ui/menu.rs`) y el diálogo de la API key es un recurso `DIALOGEX` con `STATIC`/`EDIT`/`BUTTON` reales (`assets/vtdrop.rc`, `config/key_dialog.rs`). Antes ambos se dibujaban a mano con DirectComposition para imitar el estilo Fluent.
+
+El motivo del cambio: el menú redondeado del Explorador es XAML/WinUI y no existe forma de pedirlo a un `HMENU`, así que la imitación costaba ~2 000 líneas y nunca coincidía del todo con la tipografía y el comportamiento del sistema. Ahora el teclado, el lector de pantalla, el modo oscuro y el ajuste a los bordes de pantalla los pone Windows. El precio es el aspecto clásico, sin iconos.
+
+La build GNU, además, se quedaba sin Common Controls v6 porque el linker descartaba el manifiesto: los controles se dibujaban como en Windows 2000. `ui/styles.rs` activa el manifiesto embebido con `CreateActCtxW` antes de crear ventanas.
+</details>
+
+<details>
+<summary>Diferencias con la especificación original (<a href="GUIA.md">GUIA.md</a>)</summary>
+
+- El acrílico real dentro del círculo solo existe en Windows 11 con transparencias; en Windows 10 queda el color sólido del tema (DWM solo ofrece acrílico rectangular).
+- La expansión usa la curva Fluent en vez de un rebote tipo spring.
+- Tras subir un archivo, el análisis se revisa cada 15 s en lugar de con backoff exponencial.
+- Se eliminaron la opción `backdrop` y la tecla F9.
+- Se añadieron cancelar, progreso y soltar durante el escaneo, que se pidieron después.
+</details>
+
+**Pendiente:** alto contraste, navegación por teclado del widget y soporte del Narrador.
 
 ## Licencia
 
-MIT. Ver `LICENSE`.
+MIT. Ver [LICENSE](LICENSE).
