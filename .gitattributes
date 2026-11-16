@@ -1,0 +1,6 @@
+# Normaliza los finales de línea: LF en el repositorio y en el checkout.
+# Sin esto, `core.autocrlf` mezcla CRLF y LF según el archivo y ensucia los diff.
+* text=auto eol=lf
+
+*.ico binary
+*.png binary

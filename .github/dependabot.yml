@@ -1,0 +1,19 @@
+version: 2
+
+updates:
+  # `windows` mueve versiones a menudo y sus cambios de major rompen la API,
+  # así que se revisan una vez al mes en lugar de cada semana.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
