@@ -83,26 +83,38 @@ unsafe fn create_context(module: HMODULE, resource_id: usize) -> Option<HANDLE> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows::core::{w, HSTRING};
-    use windows::Win32::Foundation::{FreeLibrary, HWND};
-    use windows::Win32::System::ApplicationInstallationAndServicing::DeactivateActCtx;
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::FreeLibrary;
     use windows::Win32::System::LibraryLoader::{
         FindResourceW, LoadLibraryExW, LoadResource, LockResource, SizeofResource,
         LOAD_LIBRARY_AS_DATAFILE, LOAD_LIBRARY_AS_IMAGE_RESOURCE,
     };
+    use windows::Win32::UI::WindowsAndMessaging::RT_MANIFEST;
+
+    // Only the GNU build needs to activate the manifest by hand; MSVC links it
+    // as RT_MANIFEST/1 and these helpers would be dead code there.
+    #[cfg(target_env = "gnu")]
+    use windows::core::w;
+    #[cfg(target_env = "gnu")]
+    use windows::Win32::Foundation::HWND;
+    #[cfg(target_env = "gnu")]
+    use windows::Win32::System::ApplicationInstallationAndServicing::DeactivateActCtx;
+    #[cfg(target_env = "gnu")]
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, RT_MANIFEST, WINDOW_EX_STYLE, WS_POPUP,
+        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP,
     };
 
     /// `comctl32` v6 is only loaded when the process activation context asks
     /// for it. Its absence is the precise reason the dialog used to render
     /// with Windows 2000 buttons.
+    #[cfg(target_env = "gnu")]
     fn common_controls_loaded() -> bool {
         unsafe { GetModuleHandleW(w!("comctl32.dll")) }.is_ok()
     }
 
     /// Creating a native control is what forces the loader to resolve the
     /// theming dependency.
+    #[cfg(target_env = "gnu")]
     fn create_hidden_button() -> HWND {
         unsafe {
             CreateWindowExW(
