@@ -40,7 +40,26 @@ use crate::worker::WorkerHandle;
 const CLASS_NAME: windows::core::PCWSTR = w!("VTDropWidget");
 const MUTEX_NAME: windows::core::PCWSTR = w!("Local\\VTDrop-7F1E2B9C-SingleInstance");
 
+/// Location of the built application binary, for tests that need its resource
+/// section (the test harness itself only carries the icon-less default
+/// manifest, so resources must be read from the real `.exe`).
+#[cfg(test)]
+pub(crate) fn app_exe_path() -> Option<std::path::PathBuf> {
+    let mut dir = std::env::current_exe().ok()?;
+    loop {
+        dir = dir.parent()?.to_path_buf();
+        if dir.file_name().is_some_and(|name| name == "build") {
+            // target/<profile>/build -> target/<profile>/vtdrop.exe
+            let candidate = dir.parent()?.join("vtdrop.exe");
+            return candidate.exists().then_some(candidate);
+        }
+    }
+}
+
 pub fn run() -> WinResult<()> {
+    // Must happen before the first window: comctl32 v6 decides how every
+    // native control, menu and scrollbar is drawn.
+    crate::ui::styles::enable_visual_styles();
     unsafe {
         // Safe no-op when the MSVC manifest already set PerMonitorV2.
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

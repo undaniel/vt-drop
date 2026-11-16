@@ -90,7 +90,7 @@ La API pública de VirusTotal admite 4 peticiones por minuto (y 500 al día). El
 - **Arrastrar archivos** desde el Explorador sobre el círculo. Se aceptan varios y en cualquier momento. Mientras escanea, el círculo brilla y los archivos se suman al lote.
 - **Clic en el resultado**: abre `https://www.virustotal.com/gui/file/<sha256>`.
 - **Clic en el círculo mientras escanea**: cancela. El ✕ aparece al pasar el mouse.
-- **Clic derecho**: menú contextual nativo de Windows (`HMENU`) con *Cancelar análisis* (solo mientras escanea), *Siempre encima*, *Iniciar con Windows*, *Configurar API key…*, *Abrir último resultado* y *Salir*.
+- **Clic derecho**: menú contextual nativo de Windows (`HMENU`) con *Cancelar análisis* (solo mientras escanea), *Siempre encima*, *Iniciar con Windows*, *Configurar API key…*, *Abrir último resultado* y *Salir*. Usa la tipografía, el modo oscuro y el teclado del sistema.
 - **Arrastrar el círculo**: mueve el widget. La posición se guarda al soltar.
 - **Línea de comandos**: `vtdrop.exe <archivo>…` analiza esos archivos al arrancar (sirve para "Abrir con"). Si VTDrop ya está abierto, los argumentos se ignoran.
 - **Carpetas**: se ignoran por defecto. Para recorrerlas, pon `"scan_folders": true` en `config.json`.
@@ -138,6 +138,7 @@ ui/composition.rs     Windows.UI.Composition: círculo/cápsula, acrílico, anim
 ui/render.rs          respaldo: D3D11 (WARP) + DXGI + DComposition + D2D/DWrite
 ui/animation.rs       curva Fluent, anillo WinUI, FrameClock solo para el respaldo
 ui/menu.rs            menú contextual nativo (HMENU + TrackPopupMenu)
+ui/styles.rs          activa Common Controls v6 en la build GNU (tema real de los controles)
 ui/tooltip.rs         tooltip propio (GDI) con fundido de entrada
 drop_target.rs        IDropTarget OLE (CF_HDROP) + fallback WM_DROPFILES
 worker.rs             hilo único: cola, hash, consultas, subida, análisis en segundo plano, cancelación
@@ -177,7 +178,7 @@ En Windows 10 2004+ funciona el mismo backend con fondo sólido; el acrílico re
 
 ## Pruebas
 
-38 pruebas unitarias. Cubren hash EICAR, estadísticas, configuración, curvas de animación, continuidad del anillo, geometría del compositor (círculo → cápsula, ancla y glyph), banderas del menú nativo, el recurso del diálogo de API key, límite de peticiones, cola del lote y cancelación sin fugas al lote siguiente. Una de ellas crea un `DesktopWindowTarget` real sobre una ventana oculta y dibuja tres frames con el compositor; otra crea el diálogo nativo desde el recurso sin mostrarlo.
+39 pruebas unitarias. Cubren hash EICAR, estadísticas, configuración, curvas de animación, continuidad del anillo, geometría del compositor (círculo → cápsula, ancla y glyph), banderas del menú nativo, el recurso del diálogo de API key, la activación de Common Controls v6 desde el manifiesto embebido, límite de peticiones, cola del lote y cancelación sin fugas al lote siguiente. Una de ellas crea un `DesktopWindowTarget` real sobre una ventana oculta y dibuja tres frames con el compositor; otra crea el diálogo nativo desde el recurso sin mostrarlo.
 
 ```powershell
 cargo test --release
@@ -229,8 +230,9 @@ Verificado con mouse y arrastres reales y capturas de pantalla (2026-11-16):
 ## Notas
 
 - El toast requiere un acceso directo `%APPDATA%\Microsoft\Windows\Start Menu\Programs\VTDrop.lnk` con AUMID `VTDrop.Desktop`. VTDrop lo crea o actualiza al arrancar. Si Windows bloquea los toasts, el resumen sigue visible en la cápsula.
-- El menú contextual es el menú nativo de Windows (`HMENU` + `TrackPopupMenu`, en `ui/menu.rs`). Antes era un popup propio con el estilo redondeado del Explorador, pero ese estilo es XAML/WinUI y no se puede reproducir con un `HMENU`; se cambió para heredar tipografía, teclado, accesibilidad y modo oscuro del sistema. El precio es el aspecto clásico cuadrado.
+- El menú contextual es el menú nativo de Windows (`HMENU` + `TrackPopupMenu`, en `ui/menu.rs`). Antes era un popup propio con el estilo redondeado del Explorador, pero ese estilo es XAML/WinUI y no se puede reproducir con un `HMENU`; se cambió para heredar tipografía, teclado, accesibilidad y modo oscuro del sistema. El precio es el aspecto clásico cuadrado: sin iconos ni material de vuelo.
 - El diálogo de la API key (`config/key_dialog.rs`) es un diálogo Win32 nativo (recurso `101` en `assets/vtdrop.rc`) con `STATIC`, `EDIT` y `BUTTON` reales. El sistema gestiona el cursor, `Ctrl+V`, tabulación, lector de pantalla y validación de teclado; la app solo valida la clave y la cifra con DPAPI. El campo va enmascarado y la casilla **Mostrar** lo revela.
+- Con la toolchain GNU, el enlazador impone su propio manifiesto y descarta el de la app, así que el binario se quedaba sin la dependencia de Common Controls v6 y todos los controles nativos se pintaban como en Windows 2000. `ui/styles.rs` embebe el manifiesto también como `RT_MANIFEST/2` y lo activa con `CreateActCtxW` antes de crear ventanas; así el menú y el diálogo usan el tema real claro/oscuro del sistema. En MSVC ya viene en `RT_MANIFEST/1` y la función no hace nada.
 - **Diferencias con la especificación original** (`GUIA.md`):
   - El widget usa acrílico real dentro del círculo solo en Windows 11 con transparencias activas; en Windows 10 queda el fondo sólido del tema (DWM solo ofrece acrílico rectangular).
   - La expansión usa la curva Fluent en vez de un rebote tipo spring.
