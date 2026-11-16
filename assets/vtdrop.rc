@@ -1,2 +1,17 @@
 1 ICON "assets/vtdrop.ico"
 1 24 "assets/vtdrop.manifest"
+
+/* Native API key dialog. Styles are numeric so both rc.exe (MSVC) and
+   windres (MinGW) compile it without resource headers. */
+101 DIALOGEX 0, 0, 220, 104
+STYLE 0x80C800C0
+CAPTION "VTDrop - API key"
+FONT 9, "Segoe UI", 400, 0, 1
+BEGIN
+    LTEXT "API key de VirusTotal", 1001, 10, 8, 200, 10
+    LTEXT "", 1002, 10, 22, 200, 26
+    EDITTEXT 1003, 10, 52, 200, 14, 0x000100A0
+    CONTROL "Mostrar", 1004, "Button", 0x00010003, 10, 70, 60, 10
+    DEFPUSHBUTTON "Guardar", 1, 108, 86, 50, 14
+    PUSHBUTTON "Cancelar", 2, 160, 86, 50, 14
+END
