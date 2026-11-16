@@ -95,7 +95,7 @@ cargo build --release
 
 **MSVC:** instala Visual Studio Build Tools con "Desarrollo para el escritorio con C++" y el Windows SDK, y usa `stable-x86_64-pc-windows-msvc`.
 
-`build.rs` incrusta el icono y el manifiesto con `embed-resource`. MinGW-W64 14 enlaza siempre su propio manifiesto `longPathAware` y descarta cualquier otro con el mismo id, así que en GNU el manifiesto de la app se embebe como `RT_MANIFEST/2` y se activa al arrancar (`ui/styles.rs`) para tener Common Controls v6 y el tema real de los controles. En MSVC viaja como `RT_MANIFEST/1` y no hace falta nada más.
+`build.rs` incrusta el icono y el manifiesto. En MSVC lo hace `embed-resource`; en GNU compila el `.rc` con `windres`, porque `embed-resource` elige su backend según el *host* (los build scripts se compilan para el host) y desde un host MSVC genera un `.lib` que el `ld` de MinGW rechaza. MinGW-W64 14 enlaza siempre su propio manifiesto `longPathAware` y descarta cualquier otro con el mismo id, así que en GNU el manifiesto de la app se embebe como `RT_MANIFEST/2` y se activa al arrancar (`ui/styles.rs`) para tener Common Controls v6 y el tema real de los controles. En MSVC viaja como `RT_MANIFEST/1` y no hace falta nada más.
 
 El perfil de release usa `opt-level="z"`, LTO, `codegen-units=1`, `strip=true`, `panic="abort"` e `incremental=false`.
 
