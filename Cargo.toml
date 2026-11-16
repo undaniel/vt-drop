@@ -6,6 +6,7 @@ rust-version = "1.80"
 build = "build.rs"
 description = "A minimal, portable floating widget that scans dropped files with VirusTotal"
 license = "MIT"
+repository = "https://github.com/undaniel/vt-drop"
 publish = false
 
 [lib]

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  msvc:
+    name: MSVC · fmt, clippy, test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formato
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Las pruebas leen los recursos del binario real.
+      - name: Build
+        run: cargo build
+
+      # La prueba del compositor necesita un escritorio con DWM; el runner de
+      # GitHub no lo tiene. El resto corre en una ventana oculta.
+      - name: Tests
+        run: cargo test -- --skip composition_target_renders_a_frame
+
+  gnu:
+    name: GNU/MinGW · build, test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-gcc
+
+      - name: MinGW en el PATH
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "C:\msys64\ucrt64\bin"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: gnu
+
+      - name: Build
+        run: cargo build --target x86_64-pc-windows-gnu
+
+      # Ejercita el manifiesto RT_MANIFEST/2 y el diálogo nativo de la build GNU.
+      - name: Tests
+        run: cargo test --target x86_64-pc-windows-gnu -- --skip composition_target_renders_a_frame
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-gnu
