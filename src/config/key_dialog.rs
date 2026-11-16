@@ -10,12 +10,10 @@
 use std::ffi::c_void;
 
 use windows::core::{w, HSTRING, PCWSTR};
-use windows::Win32::Foundation::{
-    COLORREF, HINSTANCE, HWND, LPARAM, RECT, WPARAM,
-};
+use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateSolidBrush, DeleteObject, FillRect, InvalidateRect, SetBkColor, SetTextColor, HBRUSH, HDC,
-    HGDIOBJ,
+    CreateSolidBrush, DeleteObject, FillRect, InvalidateRect, SetBkColor, SetTextColor, HBRUSH,
+    HDC, HGDIOBJ,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
@@ -25,11 +23,11 @@ use windows::Win32::UI::Controls::{
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::{
     DialogBoxParamW, EndDialog, GetClientRect, GetDlgItem, GetWindowLongPtrW, GetWindowRect,
-    GetWindowTextLengthW, GetWindowTextW, MessageBoxW, SendDlgItemMessageW,
-    SendMessageW, SetDlgItemTextW, SetWindowLongPtrW, SetWindowPos, GWLP_USERDATA,
-    MB_ICONWARNING, MB_OK, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, WM_CLOSE, WM_COMMAND,
-    WM_CTLCOLORBTN, WM_CTLCOLORDLG, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_ERASEBKGND,
-    WM_INITDIALOG, WM_THEMECHANGED, BN_CLICKED,
+    GetWindowTextLengthW, GetWindowTextW, MessageBoxW, SendDlgItemMessageW, SendMessageW,
+    SetDlgItemTextW, SetWindowLongPtrW, SetWindowPos, BN_CLICKED, GWLP_USERDATA, MB_ICONWARNING,
+    MB_OK, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN,
+    WM_CTLCOLORDLG, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_ERASEBKGND, WM_INITDIALOG,
+    WM_THEMECHANGED,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -179,9 +177,9 @@ fn init_dialog(hwnd: HWND, state: &mut KeyDialogState) {
     center_on_owner(hwnd, state.owner);
 
     let description = if state.existing {
-        "Pega una nueva clave para reemplazar la guardada. Se cifra con DPAPI en %APPDATA%\\VTDrop. Deja el campo vacio para conservar la clave actual."
+        "Pega una nueva clave. Se guarda cifrada con DPAPI en %APPDATA%\\VTDrop. Si dejas el campo vacio, se conserva la actual."
     } else {
-        "Pega tu clave de API de VirusTotal. Se cifra con DPAPI en %APPDATA%\\VTDrop y nunca se escribe en logs."
+        "Pega tu clave de API de VirusTotal. Se guarda cifrada con DPAPI en %APPDATA%\\VTDrop."
     };
     let description = HSTRING::from(description);
     unsafe {
@@ -198,8 +196,7 @@ fn init_dialog(hwnd: HWND, state: &mut KeyDialogState) {
                 Some(WPARAM(MAX_KEY_CHARS)),
                 Some(LPARAM(0)),
             );
-            let default_char =
-                SendMessageW(edit, EM_GETPASSWORDCHAR, None, None).0 as usize;
+            let default_char = SendMessageW(edit, EM_GETPASSWORDCHAR, None, None).0 as usize;
             state.password_char = if default_char == 0 {
                 0x25CF
             } else {
@@ -228,17 +225,10 @@ fn apply_dark_controls(hwnd: HWND, state: &KeyDialogState) {
 }
 
 fn toggle_reveal(hwnd: HWND, state: &KeyDialogState) {
-    let checked =
-        unsafe { IsDlgButtonChecked(hwnd, ID_SHOW) } == BST_CHECKED.0;
+    let checked = unsafe { IsDlgButtonChecked(hwnd, ID_SHOW) } == BST_CHECKED.0;
     let mask = if checked { 0 } else { state.password_char };
     unsafe {
-        let _ = SendDlgItemMessageW(
-            hwnd,
-            ID_KEY,
-            EM_SETPASSWORDCHAR,
-            WPARAM(mask),
-            LPARAM(0),
-        );
+        let _ = SendDlgItemMessageW(hwnd, ID_KEY, EM_SETPASSWORDCHAR, WPARAM(mask), LPARAM(0));
         if let Ok(edit) = GetDlgItem(Some(hwnd), ID_KEY) {
             let _ = InvalidateRect(Some(edit), None, true);
         }
@@ -260,10 +250,7 @@ fn save_key(hwnd: HWND, state: &mut KeyDialogState) {
         return;
     }
     if !is_valid_api_key(trimmed.as_str()) {
-        warn(
-            hwnd,
-            "La API key debe tener 64 caracteres hexadecimales.",
-        );
+        warn(hwnd, "La API key debe tener 64 caracteres hexadecimales.");
         return;
     }
     match save_api_key(trimmed.as_str()) {
@@ -359,9 +346,8 @@ mod tests {
         // Creates the native dialog from the embedded template without showing
         // it. This catches malformed resources and a broken WM_INITDIALOG.
         let module = app_module();
-        let resource = unsafe {
-            FindResourceW(Some(module), PCWSTR(DLG_ID as *const u16), RT_DIALOG)
-        };
+        let resource =
+            unsafe { FindResourceW(Some(module), PCWSTR(DLG_ID as *const u16), RT_DIALOG) };
         assert!(!resource.0.is_null(), "dialog resource 101 is missing");
         let loaded = unsafe { LoadResource(Some(module), resource) }.expect("load resource");
         let pointer = unsafe { LockResource(loaded) };

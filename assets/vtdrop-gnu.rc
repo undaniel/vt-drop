@@ -10,15 +10,15 @@
 
 /* Native API key dialog. Styles are numeric so both rc.exe (MSVC) and
    windres (MinGW) compile it without resource headers. */
-101 DIALOGEX 0, 0, 220, 104
+101 DIALOGEX 0, 0, 236, 116
 STYLE 0x80C800C0
 CAPTION "VTDrop - API key"
-FONT 9, "Segoe UI", 400, 0, 1
+FONT 10, "Segoe UI", 400, 0, 1
 BEGIN
-    LTEXT "API key de VirusTotal", 1001, 10, 8, 200, 10
-    LTEXT "", 1002, 10, 22, 200, 26
-    EDITTEXT 1003, 10, 52, 200, 14, 0x000100A0
-    CONTROL "Mostrar", 1004, "Button", 0x00010003, 10, 70, 60, 10
-    DEFPUSHBUTTON "Guardar", 1, 108, 86, 50, 14
-    PUSHBUTTON "Cancelar", 2, 160, 86, 50, 14
+    LTEXT "API key de VirusTotal", 1001, 12, 10, 212, 11
+    LTEXT "", 1002, 12, 26, 212, 30
+    EDITTEXT 1003, 12, 60, 212, 15, 0x000100A0
+    CONTROL "Mostrar", 1004, "Button", 0x00010003, 12, 82, 70, 11
+    DEFPUSHBUTTON "Guardar", 1, 104, 96, 56, 16
+    PUSHBUTTON "Cancelar", 2, 168, 96, 56, 16
 END

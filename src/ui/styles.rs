@@ -25,10 +25,10 @@ use windows::Win32::Foundation::{HANDLE, HMODULE};
 use windows::Win32::System::ApplicationInstallationAndServicing::{
     ActivateActCtx, CreateActCtxW, ACTCTXW,
 };
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::WindowsProgramming::{
     ACTCTX_FLAG_HMODULE_VALID, ACTCTX_FLAG_RESOURCE_NAME_VALID,
 };
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 
 const MANIFEST_RESOURCE_ID: usize = 2;
 
@@ -148,7 +148,11 @@ mod tests {
         .expect("load vtdrop.exe as data");
 
         let bytes = unsafe {
-            let resource = FindResourceW(Some(module), PCWSTR(MANIFEST_RESOURCE_ID as *const u16), RT_MANIFEST);
+            let resource = FindResourceW(
+                Some(module),
+                PCWSTR(MANIFEST_RESOURCE_ID as *const u16),
+                RT_MANIFEST,
+            );
             assert!(
                 !resource.0.is_null(),
                 "RT_MANIFEST/2 is missing; controls would look like Windows 2000"
