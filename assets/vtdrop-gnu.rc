@@ -1,5 +1,13 @@
 1 ICON "assets/vtdrop.ico"
 
+/* MinGW-w64 always links its own default manifest as RT_MANIFEST/1 and drops
+   any other copy with the same id, so the Common-Controls v6 dependency would
+   never reach the binary. It is embedded here as RT_MANIFEST/2 instead and
+   activated at runtime (src/ui/styles.rs): without it every native control
+   falls back to the Windows 2000 look. */
+
+2 24 "assets/vtdrop.manifest"
+
 /* Native API key dialog. Styles are numeric so both rc.exe (MSVC) and
    windres (MinGW) compile it without resource headers. */
 101 DIALOGEX 0, 0, 220, 104

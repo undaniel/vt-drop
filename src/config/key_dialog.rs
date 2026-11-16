@@ -331,11 +331,8 @@ mod tests {
 
     /// The dialog lives in the application's resource section, not in the test
     /// harness. Load the already-built vtdrop.exe as a data file.
-    fn app_module() -> Option<HMODULE> {
-        let exe = std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent()?.parent().map(|dir| dir.join("vtdrop.exe")))
-            .filter(|path| path.exists())?;
+    fn app_module() -> HMODULE {
+        let exe = crate::app_exe_path().expect("run `cargo build` before `cargo test`");
         unsafe {
             LoadLibraryExW(
                 &HSTRING::from(exe.to_string_lossy().as_ref()),
@@ -343,15 +340,12 @@ mod tests {
                 LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE,
             )
         }
-        .ok()
+        .expect("load vtdrop.exe as data")
     }
 
     #[test]
     fn native_dialog_resource_is_linked() {
-        let Some(module) = app_module() else {
-            // `cargo test` alone may not have built the binary target.
-            return;
-        };
+        let module = app_module();
         let resource =
             unsafe { FindResourceW(Some(module), PCWSTR(DLG_ID as *const u16), RT_DIALOG) };
         unsafe {
@@ -364,9 +358,7 @@ mod tests {
     fn native_dialog_template_is_valid() {
         // Creates the native dialog from the embedded template without showing
         // it. This catches malformed resources and a broken WM_INITDIALOG.
-        let Some(module) = app_module() else {
-            return;
-        };
+        let module = app_module();
         let resource = unsafe {
             FindResourceW(Some(module), PCWSTR(DLG_ID as *const u16), RT_DIALOG)
         };

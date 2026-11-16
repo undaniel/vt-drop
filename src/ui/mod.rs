@@ -2,6 +2,7 @@ pub mod animation;
 pub mod composition;
 pub mod menu;
 pub mod render;
+pub mod styles;
 pub mod tooltip;
 pub mod window;
 
