@@ -14,6 +14,10 @@ use crate::theme::Rgb;
 /// and `CreateHostBackdropBrush` gives real acrylic inside the shape. The
 /// original Direct2D/DirectComposition renderer stays as a fallback for older
 /// builds and for `VTDROP_RENDERER=legacy`.
+// `App` owns exactly one renderer for its whole life and the enum is never
+// moved in a hot path, so boxing the larger variant would only add a pointer
+// hop to every frame.
+#[allow(clippy::large_enum_variant)]
 pub enum Renderer {
     Legacy(render::Renderer),
     Composition(composition::CompositionRenderer),
@@ -70,7 +74,9 @@ impl Renderer {
         anchor_y: f32,
     ) -> windows::core::Result<()> {
         match self {
-            Self::Legacy(renderer) => renderer.set_layout(width_dip, height_dip, anchor_x, anchor_y),
+            Self::Legacy(renderer) => {
+                renderer.set_layout(width_dip, height_dip, anchor_x, anchor_y)
+            }
             Self::Composition(renderer) => {
                 renderer.set_layout(width_dip, height_dip, anchor_x, anchor_y)
             }

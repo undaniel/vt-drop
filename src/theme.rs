@@ -39,7 +39,8 @@ impl Rgb {
     }
 
     pub fn mix(self, other: Rgb, t: f32) -> Rgb {
-        let channel = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t.clamp(0.0, 1.0)).round() as u8;
+        let channel =
+            |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t.clamp(0.0, 1.0)).round() as u8;
         Rgb::new(
             channel(self.r, other.r),
             channel(self.g, other.g),

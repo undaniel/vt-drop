@@ -285,7 +285,13 @@ unsafe extern "system" fn wndproc(
         }
         // AnimateWindow captures the content through WM_PRINTCLIENT.
         windows::Win32::UI::WindowsAndMessaging::WM_PRINTCLIENT => {
-            unsafe { draw(hwnd, windows::Win32::Graphics::Gdi::HDC(wparam.0 as *mut _), tooltip) };
+            unsafe {
+                draw(
+                    hwnd,
+                    windows::Win32::Graphics::Gdi::HDC(wparam.0 as *mut _),
+                    tooltip,
+                )
+            };
             LRESULT(0)
         }
         windows::Win32::UI::WindowsAndMessaging::WM_ERASEBKGND => LRESULT(1),

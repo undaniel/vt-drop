@@ -1,8 +1,8 @@
 //! Minimal blocking VirusTotal API v3 client (rustls via `ureq`).
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::fs::File;
-use std::collections::VecDeque;
 use std::io::{self, Cursor, Read};
 use std::path::Path;
 use std::thread;

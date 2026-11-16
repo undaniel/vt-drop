@@ -144,7 +144,6 @@ impl FrameClock {
             flag.store(false, Ordering::Release);
         }
     }
-
 }
 
 impl Drop for FrameClock {

@@ -87,10 +87,11 @@ mod tests {
     use windows::Win32::Foundation::{FreeLibrary, HWND};
     use windows::Win32::System::ApplicationInstallationAndServicing::DeactivateActCtx;
     use windows::Win32::System::LibraryLoader::{
-        LoadLibraryExW, LOAD_LIBRARY_AS_DATAFILE, LOAD_LIBRARY_AS_IMAGE_RESOURCE,
+        FindResourceW, LoadLibraryExW, LoadResource, LockResource, SizeofResource,
+        LOAD_LIBRARY_AS_DATAFILE, LOAD_LIBRARY_AS_IMAGE_RESOURCE,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP,
+        CreateWindowExW, DestroyWindow, RT_MANIFEST, WINDOW_EX_STYLE, WS_POPUP,
     };
 
     /// `comctl32` v6 is only loaded when the process activation context asks
@@ -103,7 +104,7 @@ mod tests {
     /// Creating a native control is what forces the loader to resolve the
     /// theming dependency.
     fn create_hidden_button() -> HWND {
-        let button = unsafe {
+        unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
                 w!("Button"),
@@ -119,8 +120,33 @@ mod tests {
                 None,
             )
         }
-        .expect("create button");
-        button
+        .expect("create button")
+    }
+
+    /// The resources live in the application binary, not in the test harness.
+    fn app_module() -> HMODULE {
+        let exe = crate::app_exe_path().expect("run `cargo build` before `cargo test`");
+        unsafe {
+            LoadLibraryExW(
+                &HSTRING::from(exe.to_string_lossy().as_ref()),
+                None,
+                LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE,
+            )
+        }
+        .expect("load vtdrop.exe as data")
+    }
+
+    fn manifest_bytes(module: HMODULE, id: usize) -> Option<Vec<u8>> {
+        unsafe {
+            let resource = FindResourceW(Some(module), PCWSTR(id as *const u16), RT_MANIFEST);
+            if resource.0.is_null() {
+                return None;
+            }
+            let size = SizeofResource(Some(module), resource) as usize;
+            let loaded = LoadResource(Some(module), resource).ok()?;
+            let pointer = LockResource(loaded) as *const u8;
+            Some(std::slice::from_raw_parts(pointer, size).to_vec())
+        }
     }
 
     /// The GNU build must carry the manifest twice: the linker's default one
@@ -131,37 +157,10 @@ mod tests {
     /// activation context from a module mapped as data.
     #[cfg(target_env = "gnu")]
     #[test]
-    fn gnu_manifest_loads_common_controls_v6() {
-        use windows::Win32::System::LibraryLoader::{
-            FindResourceW, LoadResource, LockResource, SizeofResource,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::RT_MANIFEST;
-
-        let exe = crate::app_exe_path().expect("run `cargo build` before `cargo test`");
-        let module = unsafe {
-            LoadLibraryExW(
-                &HSTRING::from(exe.to_string_lossy().as_ref()),
-                None,
-                LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE,
-            )
-        }
-        .expect("load vtdrop.exe as data");
-
-        let bytes = unsafe {
-            let resource = FindResourceW(
-                Some(module),
-                PCWSTR(MANIFEST_RESOURCE_ID as *const u16),
-                RT_MANIFEST,
-            );
-            assert!(
-                !resource.0.is_null(),
-                "RT_MANIFEST/2 is missing; controls would look like Windows 2000"
-            );
-            let size = SizeofResource(Some(module), resource) as usize;
-            let loaded = LoadResource(Some(module), resource).expect("load manifest");
-            let pointer = LockResource(loaded) as *const u8;
-            std::slice::from_raw_parts(pointer, size).to_vec()
-        };
+    fn gnu_manifest_activates_common_controls_v6() {
+        let module = app_module();
+        let bytes = manifest_bytes(module, MANIFEST_RESOURCE_ID)
+            .expect("RT_MANIFEST/2 is missing; controls would look like Windows 2000");
         unsafe {
             let _ = FreeLibrary(module);
         }
@@ -199,17 +198,24 @@ mod tests {
         );
     }
 
-    /// MSVC builds get visual styles from `RT_MANIFEST/1` at process start;
-    /// `enable_visual_styles` must then be a harmless no-op.
+    /// MSVC embeds the manifest as `RT_MANIFEST/1`, so Windows applies it at
+    /// process start and `enable_visual_styles` has nothing to do.
     #[cfg(not(target_env = "gnu"))]
     #[test]
-    fn msvc_build_is_already_themed() {
-        let button = create_hidden_button();
-        let themed = common_controls_loaded();
+    fn msvc_manifest_requests_common_controls() {
+        let module = app_module();
+        let bytes = manifest_bytes(module, 1).expect("RT_MANIFEST/1 is missing");
         unsafe {
-            let _ = DestroyWindow(button);
+            let _ = FreeLibrary(module);
         }
-        assert!(themed, "MSVC manifest did not enable comctl32 v6");
-        let _ = enable_visual_styles();
+        let manifest = String::from_utf8_lossy(&bytes);
+        assert!(
+            manifest.contains("Microsoft.Windows.Common-Controls"),
+            "the MSVC manifest does not request Common Controls v6"
+        );
+        assert!(
+            manifest.contains("PerMonitorV2"),
+            "the MSVC manifest lost per-monitor DPI awareness"
+        );
     }
 }

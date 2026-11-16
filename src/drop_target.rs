@@ -28,6 +28,9 @@ impl DropTarget {
     }
 }
 
+// The `pdweffect` out-pointers come from OLE and are always valid per the
+// `IDropTarget` contract, so these methods cannot take `unsafe fn` safely.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 impl windows::Win32::System::Ole::IDropTarget_Impl for DropTarget_Impl {
     fn DragEnter(
         &self,
@@ -36,10 +39,7 @@ impl windows::Win32::System::Ole::IDropTarget_Impl for DropTarget_Impl {
         _pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> WinResult<()> {
-        let acceptable = pdataobj
-            .as_ref()
-            .map(|data| has_hdrop(data))
-            .unwrap_or(false)
+        let acceptable = pdataobj.as_ref().map(has_hdrop).unwrap_or(false)
             && with_app(self.hwnd, |app| app.on_drag_enter()).unwrap_or(false);
         unsafe {
             if let Some(slot) = pdweffect.as_mut() {

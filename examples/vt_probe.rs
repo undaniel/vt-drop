@@ -33,7 +33,9 @@ fn main() {
             println!("stats: {stats:?}");
             println!("ratio: {}/{}", stats.ratio().0, stats.ratio().1);
         }
-        Ok(Lookup::NotFound) if custom.is_some() => println!("404: VirusTotal does not know {sha256}"),
+        Ok(Lookup::NotFound) if custom.is_some() => {
+            println!("404: VirusTotal does not know {sha256}")
+        }
         Ok(Lookup::Found(stats)) => {
             println!("EICAR SHA-256: {EICAR_SHA256}");
             println!("stats: {stats:?}");

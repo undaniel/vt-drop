@@ -26,7 +26,10 @@ const MAX_UPLOAD: u64 = 650 * 1024 * 1024;
 
 pub enum WorkerCommand {
     Scan(Vec<PathBuf>),
-    Decision { id: u64, accept: bool },
+    Decision {
+        id: u64,
+        accept: bool,
+    },
     /// Follows the cancel flag through the channel so the worker knows which
     /// batch it belongs to (anything sent after it is for the next batch).
     Cancel,
@@ -260,7 +263,9 @@ impl Worker {
         let mut last = (-1i64, Instant::now());
         move |done: u64| {
             let percent = (done.min(size) * 100 / size.max(1)) as i64;
-            if percent != last.0 && (percent == 100 || last.1.elapsed() >= Duration::from_millis(33)) {
+            if percent != last.0
+                && (percent == 100 || last.1.elapsed() >= Duration::from_millis(33))
+            {
                 last = (percent, Instant::now());
                 post_to(hwnd, &events, WorkerEvent::Percent(percent as f32 / 100.0));
             }
@@ -545,7 +550,10 @@ impl Worker {
             if now >= due {
                 return true;
             }
-            match self.receiver.recv_timeout((due - now).min(Duration::from_millis(200))) {
+            match self
+                .receiver
+                .recv_timeout((due - now).min(Duration::from_millis(200)))
+            {
                 Ok(command) => {
                     self.absorb(command);
                     if !self.queue.is_empty() {
@@ -707,7 +715,9 @@ mod tests {
             deferred: Vec::new(),
         };
         worker.absorb(WorkerCommand::Scan(vec![a.clone()]));
-        sender.send(WorkerCommand::Scan(vec![a.clone(), b.clone()])).unwrap();
+        sender
+            .send(WorkerCommand::Scan(vec![a.clone(), b.clone()]))
+            .unwrap();
         worker.absorb_pending();
         assert_eq!(worker.queue, VecDeque::from([a, b]));
         let _ = std::fs::remove_dir_all(root);
@@ -742,7 +752,9 @@ mod tests {
             s.send(WorkerCommand::Cancel).unwrap();
         };
         handle_like(&sender);
-        sender.send(WorkerCommand::Scan(vec![file.clone()])).unwrap();
+        sender
+            .send(WorkerCommand::Scan(vec![file.clone()]))
+            .unwrap();
         assert!(worker.cancelled());
         worker.absorb_pending();
         assert!(worker.queue.is_empty());

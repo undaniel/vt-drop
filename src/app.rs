@@ -11,13 +11,13 @@ use windows::Win32::Graphics::Gdi::{
     PAINTSTRUCT,
 };
 use windows::Win32::System::Ole::{IDropTarget, RegisterDragDrop, RevokeDragDrop};
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
-use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetLastInputInfo, LASTINPUTINFO,
-    ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    GetLastInputInfo, ReleaseCapture, SetCapture, TrackMouseEvent, LASTINPUTINFO, TME_LEAVE,
+    TRACKMOUSEEVENT,
 };
 use windows::Win32::UI::Shell::{
     DragAcceptFiles, DragFinish, DragQueryFileW, ShellExecuteW, HDROP,
@@ -27,8 +27,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, IDC_ARROW, IDC_HAND, SWP_NOACTIVATE,
     SWP_NOZORDER, SW_SHOWNOACTIVATE, SW_SHOWNORMAL, WM_APP, WM_CAPTURECHANGED, WM_CLOSE,
     WM_DESTROY, WM_DPICHANGED, WM_DROPFILES, WM_DWMCOLORIZATIONCOLORCHANGED, WM_ERASEBKGND,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_RBUTTONUP,
-    WM_SETTINGCHANGE, WM_THEMECHANGED, WM_TIMER,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_RBUTTONUP, WM_SETTINGCHANGE,
+    WM_THEMECHANGED, WM_TIMER,
 };
 use zeroize::Zeroizing;
 
@@ -444,7 +444,8 @@ impl App {
             // Joins the running batch; the counter grows (1/2, 2/3…) right
             // away. The worker corrects it once it has expanded folders and
             // skipped duplicates.
-            if let UiState::Busy { total, .. } | UiState::AskUpload { total, .. } = &mut self.state {
+            if let UiState::Busy { total, .. } | UiState::AskUpload { total, .. } = &mut self.state
+            {
                 *total += files.len();
             }
             self.set_hover(0.0);
@@ -703,9 +704,8 @@ impl App {
 
     fn update_cursor(&self, x: f32, y: f32) {
         let (accept, reject) = self.button_hit(x, y);
-        let hand = accept
-            || reject
-            || matches!(self.state, UiState::Result { .. } | UiState::Busy { .. });
+        let hand =
+            accept || reject || matches!(self.state, UiState::Result { .. } | UiState::Busy { .. });
         let cursor = unsafe { LoadCursorW(None, if hand { IDC_HAND } else { IDC_ARROW }) };
         if let Ok(cursor) = cursor {
             unsafe {
@@ -770,7 +770,10 @@ impl App {
                 self.ensure_frame_timer();
             }
         }
-        if !composition && matches!(self.state, UiState::Result { .. }) && self.pending_state.is_none() {
+        if !composition
+            && matches!(self.state, UiState::Result { .. })
+            && self.pending_state.is_none()
+        {
             if self.theme.animations_enabled && self.expand_anim.is_some() {
                 // Count up once the panel has mostly opened.
                 self.reveal = 0.0;
@@ -1154,7 +1157,11 @@ impl App {
             worker.decision(id, accept);
         }
         self.busy_started.get_or_insert_with(Instant::now);
-        let phase = if accept { Phase::Uploading } else { Phase::Querying };
+        let phase = if accept {
+            Phase::Uploading
+        } else {
+            Phase::Querying
+        };
         self.set_state(UiState::Busy {
             index,
             total,
@@ -1186,8 +1193,8 @@ impl App {
         match event {
             WorkerEvent::Queued { total } => {
                 self.batch_total = total;
-                if let UiState::Busy { total: shown, .. } | UiState::AskUpload { total: shown, .. } =
-                    &mut self.state
+                if let UiState::Busy { total: shown, .. }
+                | UiState::AskUpload { total: shown, .. } = &mut self.state
                 {
                     *shown = total;
                 }
@@ -1329,10 +1336,19 @@ impl App {
     /// ponytail: frozen when Windows animations are off (no clock then).
     fn busy_label(&self, progress: Option<f32>) -> Option<String> {
         if progress.is_some() {
-            return Some(format!("{}%", (self.shown_progress.clamp(0.0, 1.0) * 100.0).round() as u32));
+            return Some(format!(
+                "{}%",
+                (self.shown_progress.clamp(0.0, 1.0) * 100.0).round() as u32
+            ));
         }
         match (&self.state, self.polling_since) {
-            (UiState::Busy { phase: Phase::Polling, .. }, Some(since)) => {
+            (
+                UiState::Busy {
+                    phase: Phase::Polling,
+                    ..
+                },
+                Some(since),
+            ) => {
                 let seconds = since.elapsed().as_secs();
                 Some(format!("{}:{:02}", seconds / 60, seconds % 60))
             }
@@ -1565,7 +1581,13 @@ impl App {
             ));
         }
         match (&self.state, self.polling_since) {
-            (UiState::Busy { phase: Phase::Polling, .. }, Some(since)) => {
+            (
+                UiState::Busy {
+                    phase: Phase::Polling,
+                    ..
+                },
+                Some(since),
+            ) => {
                 let seconds = since.elapsed().as_secs();
                 Some(format!("{}:{:02}", seconds / 60, seconds % 60))
             }
@@ -1635,14 +1657,8 @@ impl App {
 
         self.renderer = None;
         let prefer_composition = crate::ui::composition_supported(&self.theme);
-        self.renderer = Renderer::new(
-            self.hwnd,
-            dpi,
-            self.theme,
-            prefer_composition,
-            self.acrylic,
-        )
-        .ok();
+        self.renderer =
+            Renderer::new(self.hwnd, dpi, self.theme, prefer_composition, self.acrylic).ok();
         if let Some(tooltip) = &mut self.tooltip {
             tooltip.set_theme(&self.theme);
         }
@@ -1776,8 +1792,10 @@ impl App {
                 } else {
                     what.to_owned()
                 };
-                Some(format!("{what}
-Puedes soltar más archivos. Clic para cancelar."))
+                Some(format!(
+                    "{what}
+Puedes soltar más archivos. Clic para cancelar."
+                ))
             }
             _ => None,
         }
@@ -1852,7 +1870,9 @@ Puedes soltar más archivos. Clic para cancelar."))
 /// Only theme, transparency, accent, reduced-motion and contrast changes need a
 /// refresh; `WM_SETTINGCHANGE` also fires for unrelated things like env vars.
 fn setting_affects_theme(wparam: WPARAM, lparam: LPARAM) -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{SPI_SETCLIENTAREAANIMATION, SPI_SETHIGHCONTRAST};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SPI_SETCLIENTAREAANIMATION, SPI_SETHIGHCONTRAST,
+    };
     let action = wparam.0 as u32;
     if action == SPI_SETCLIENTAREAANIMATION.0 || action == SPI_SETHIGHCONTRAST.0 {
         return true;
@@ -1861,7 +1881,8 @@ fn setting_affects_theme(wparam: WPARAM, lparam: LPARAM) -> bool {
         return false;
     }
     let area = unsafe { windows::core::PCWSTR(lparam.0 as *const u16).to_string() };
-    area.map(|area| area == "ImmersiveColorSet").unwrap_or(false)
+    area.map(|area| area == "ImmersiveColorSet")
+        .unwrap_or(false)
 }
 
 fn open_virustotal(sha256: &str) {
