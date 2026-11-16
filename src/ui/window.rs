@@ -8,7 +8,8 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{
     DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_NONE, DWMSBT_TRANSIENTWINDOW,
     DWMWA_BORDER_COLOR, DWMWA_COLOR_DEFAULT, DWMWA_SYSTEMBACKDROP_TYPE,
-    DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DWMWA_USE_HOSTBACKDROPBRUSH, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_ROUND,
 };
 use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
@@ -299,6 +300,32 @@ pub fn bring_to_front(hwnd: HWND, topmost: bool) {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
+    }
+}
+
+/// Host backdrop for the `Windows.UI.Composition` visual layer.
+///
+/// `DWMWA_USE_HOSTBACKDROPBRUSH` gives a `CreateHostBackdropBrush()` visual
+/// access to the blurred desktop behind the window. It is Windows 11 only;
+/// on Windows 10 the caller keeps the opaque tint instead.
+pub fn set_host_backdrop(hwnd: HWND, enabled: bool) {
+    // The accent policy would blur a rectangle, not the composition shape.
+    disable_accent(hwnd);
+    unsafe {
+        let none = DWMSBT_NONE;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE,
+            &none as *const _ as *const c_void,
+            size_of::<i32>() as u32,
+        );
+        let value = BOOL::from(enabled);
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_HOSTBACKDROPBRUSH,
+            &value as *const BOOL as *const c_void,
+            size_of::<BOOL>() as u32,
+        );
     }
 }
 

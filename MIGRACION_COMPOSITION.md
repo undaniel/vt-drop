@@ -1,6 +1,20 @@
 # Migrar el dibujo a `Windows.UI.Composition`
 
-**Estado:** propuesta, no implementada. **Recomendación:** no hacerlo por ahora. Revisar si el acrílico en el círculo pasa a ser un requisito o si las animaciones actuales se quedan cortas en pantallas de 120/144 Hz.
+**Estado:** implementado como backend principal, con el renderer Direct2D + DirectComposition v1 como respaldo. **Pendiente de validación visual:** acrílico con la ventana inactiva y consumo de memoria en frío.
+
+## Implementación (2026-11-16)
+
+- `src/ui/composition.rs` contiene el backend nuevo: `DesktopWindowTarget`, árbol de visuales (`ContainerVisual`, `SpriteVisual`, `ShapeVisual`), recorte con `CompositionGeometricClip` + `CompositionRoundedRectangleGeometry`, y un `CompositionDrawingSurface` por cada texto/glyph (escudo, etiqueta, panel, badge, anillo, brillo).
+- Las animaciones de expansión/colapso las ejecuta el compositor: `ScalarKeyFrameAnimation`/`Vector2KeyFrameAnimation`/`Vector3KeyFrameAnimation` con `CubicBezierEasingFunction(0,0,0,1)`, duraciones 250/167 ms y un `CompositionScopedBatch` que avisa a la ventana (`WM_APP_ANIM_DONE`) al colapsar.
+- El anillo indeterminado es un `SpriteVisual` con el arco dibujado una vez y una animación de rotación infinita; el determinate redibuja el arco solo cuando cambia el porcentaje.
+- El texto se redibuja únicamente cuando cambia: ratio (incluido el conteo de entrada), porcentaje, tiempo transcurrido, hover de botones o tema.
+- Se activa automáticamente en Windows 10 2004+ (build 19041) y en Windows 11. El acrílico real (`CreateHostBackdropBrush` + `DWMWA_USE_HOSTBACKDROPBRUSH`) se usa en Windows 11 con transparencias activas; en el resto queda el fondo sólido del tema.
+- Para comparar con el renderer anterior: `set VTDROP_RENDERER=legacy` antes de arrancar. Si la creación del compositor falla, la app recurre sola al renderer antiguo.
+- `cargo test` incluye una prueba que crea un `DesktopWindowTarget` real sobre una ventana oculta y dibuja tres frames; así se validan en CI las firmas WinRT, el dispositivo WARP/hardware y las superficies, sin mostrar nada.
+
+Lo que **no** se implementó de esta propuesta: la capa de ruido del acrílico (requiere un `CompositionEffectBrush`/Win2D) y la migración opcional del menú y del diálogo de la API key, que siguen en DirectComposition v1. Tampoco hay `ExpressionAnimation`: las posiciones se calculan en Rust y se animan con keyframes.
+
+---
 
 ## En una frase
 

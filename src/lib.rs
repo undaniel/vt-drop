@@ -93,6 +93,8 @@ fn run_inner() -> WinResult<()> {
         return Err(windows::core::Error::from_thread());
     }
 
+    // No redirection bitmap: the composition visual tree is the only content,
+    // so the window is transparent outside the circle/capsule.
     let mut ex_style = WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP;
     if config.always_on_top {
         ex_style |= WS_EX_TOPMOST;

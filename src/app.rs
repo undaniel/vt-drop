@@ -37,11 +37,11 @@ use crate::drop_target::DropTarget;
 use crate::model::{ErrorInfo, Phase, ScanResult, WorkerEvent};
 use crate::theme::{self, Theme};
 use crate::ui::animation::{lerp, ring_arc, Animation, FrameClock, FAST_MS, NORMAL_MS};
+use crate::ui::composition::WM_APP_ANIM_DONE;
 use crate::ui::menu::{self, MenuItem};
-use crate::ui::render::Renderer;
 use crate::ui::tooltip::Tooltip;
 use crate::ui::window;
-use crate::ui::{DrawState, Scene};
+use crate::ui::{DrawState, Renderer, Scene};
 use crate::worker::WorkerHandle;
 
 pub const WM_APP_EVENT: u32 = WM_APP + 1;
@@ -50,6 +50,8 @@ pub const WM_APP_SHOW: u32 = WM_APP + 2;
 const TIMER_AUTOCLOSE: usize = 2;
 const TIMER_TRIM: usize = 5;
 const TIMER_TOOLTIP: usize = 6;
+const TIMER_LABEL: usize = 7;
+const TIMER_REVEAL: usize = 8;
 
 const MENU_TOPMOST: usize = 1;
 const MENU_STARTUP: usize = 2;
@@ -143,6 +145,10 @@ pub struct App {
     /// `BatchDone` arrives.
     cancelling: bool,
     clock: FrameClock,
+    /// Backdrop requested at renderer creation (Win11 + transparency on).
+    acrylic: bool,
+    /// Keep the elapsed-time label fresh while polling with the compositor.
+    label_timer: bool,
 }
 
 impl App {
@@ -202,6 +208,8 @@ impl App {
             polling_since: None,
             cancelling: false,
             clock: FrameClock::new(hwnd),
+            acrylic: false,
+            label_timer: false,
         }
     }
 
@@ -209,8 +217,24 @@ impl App {
         self.worker = Some(worker);
     }
 
+    /// True when DWM owns the animation (no frame clock on the UI thread).
+    fn uses_composition(&self) -> bool {
+        self.renderer
+            .as_ref()
+            .map(Renderer::is_composition)
+            .unwrap_or(false)
+    }
+
     pub fn initialize(&mut self) -> WinResult<()> {
-        self.renderer = Some(Renderer::new(self.hwnd, self.dpi, self.theme)?);
+        let prefer_composition = crate::ui::composition_supported(&self.theme);
+        self.acrylic = self.theme.is_win11() && !self.theme.effective_solid();
+        self.renderer = Some(Renderer::new(
+            self.hwnd,
+            self.dpi,
+            self.theme,
+            prefer_composition,
+            self.acrylic,
+        )?);
         theme::apply_native_menu_theme(self.theme.dark);
         window::allow_dark_mode(self.hwnd, self.theme.dark);
         self.apply_backdrop();
@@ -306,6 +330,10 @@ impl App {
             }
             WM_APP_SHOW => {
                 self.show_existing();
+                Some(LRESULT(0))
+            }
+            WM_APP_ANIM_DONE => {
+                self.on_animation_done();
                 Some(LRESULT(0))
             }
             WM_CLOSE => {
@@ -689,6 +717,7 @@ impl App {
     // ----- State / animations ----------------------------------------------------
 
     fn set_state(&mut self, state: UiState) {
+        let composition = self.uses_composition();
         let old_expanded = self.scene.is_expanded();
         let new_scene = self.scene_for_state(&state);
         let new_expanded = new_scene.is_expanded();
@@ -701,8 +730,13 @@ impl App {
                 self.expand = 1.0;
                 self.expand_anim = None;
             } else if self.theme.animations_enabled {
-                self.expand = 0.0;
-                self.start_expand(1.0, NORMAL_MS);
+                if composition {
+                    // The renderer animates from the compact circle.
+                    self.start_expand(1.0, NORMAL_MS);
+                } else {
+                    self.expand = 0.0;
+                    self.start_expand(1.0, NORMAL_MS);
+                }
             } else {
                 self.expand = 1.0;
                 self.expand_anim = None;
@@ -711,7 +745,7 @@ impl App {
         } else if old_expanded {
             self.cancel_auto_close();
             if self.theme.animations_enabled {
-                // Keep the outgoing pill on screen while the window shrinks.
+                // Keep the outgoing pill on screen while it shrinks.
                 self.pending_state = Some(state);
                 self.start_expand(0.0, FAST_MS);
             } else {
@@ -732,11 +766,11 @@ impl App {
 
         if matches!(self.state, UiState::Busy { .. }) {
             self.busy_started.get_or_insert_with(Instant::now);
-            if self.theme.animations_enabled {
+            if self.theme.animations_enabled && !composition {
                 self.ensure_frame_timer();
             }
         }
-        if matches!(self.state, UiState::Result { .. }) && self.pending_state.is_none() {
+        if !composition && matches!(self.state, UiState::Result { .. }) && self.pending_state.is_none() {
             if self.theme.animations_enabled && self.expand_anim.is_some() {
                 // Count up once the panel has mostly opened.
                 self.reveal = 0.0;
@@ -746,15 +780,71 @@ impl App {
                 self.reveal_anim = None;
             }
         }
-        self.settle_transition();
+        if composition {
+            self.cancel_reveal();
+            if matches!(self.state, UiState::Result { .. }) && self.pending_state.is_none() {
+                if self.theme.animations_enabled {
+                    // Text is content: count up in a few steps instead of
+                    // repainting the panel every frame.
+                    self.reveal = 0.0;
+                    self.reveal_anim = Some(Animation::fluent(700, 0.0, 1.0).delayed(120));
+                    unsafe {
+                        SetTimer(Some(self.hwnd), TIMER_REVEAL, 33, None);
+                    }
+                } else {
+                    self.reveal = 1.0;
+                    self.reveal_anim = None;
+                }
+            }
+        }
+        if !composition {
+            self.settle_transition();
+        }
         if matches!(self.state, UiState::Idle) && self.expand_anim.is_none() {
             self.schedule_trim();
         } else {
             self.cancel_trim();
         }
+        self.update_label_timer();
         self.update_tooltip();
         self.update_geometry(false).ok();
         self.render_frame();
+    }
+
+    /// Ends the collapse animation. Expansion does not need it: the window is
+    /// already sized and only visuals move.
+    fn on_animation_done(&mut self) {
+        if self.pending_state.is_some() {
+            if let Some(next) = self.pending_state.take() {
+                self.state = next;
+                self.scene = self.scene_for_state(&self.state);
+                self.expand = 0.0;
+                self.expand_anim = None;
+                self.transition = false;
+                self.update_geometry(true).ok();
+                if matches!(self.state, UiState::Idle) {
+                    self.schedule_trim();
+                }
+                self.update_label_timer();
+                self.update_tooltip();
+                self.render_frame();
+            }
+            return;
+        }
+        // Expansion finished: the window is already at its final size, but the
+        // anchor no longer applies.
+        if self.transition {
+            let still_animating = self
+                .renderer
+                .as_ref()
+                .map(Renderer::is_animating)
+                .unwrap_or(false);
+            if !still_animating {
+                self.transition = false;
+                self.update_geometry(true).ok();
+                self.render_frame();
+            }
+        }
     }
 
     fn scene_for_state(&self, state: &UiState) -> Scene {
@@ -802,6 +892,12 @@ impl App {
     }
 
     fn start_expand(&mut self, target: f32, duration: u64) {
+        if self.uses_composition() {
+            self.expand = target;
+            self.expand_anim = None;
+            self.begin_transition();
+            return;
+        }
         if !self.theme.animations_enabled {
             self.expand = target;
             self.expand_anim = None;
@@ -843,7 +939,35 @@ impl App {
     }
 
     fn ensure_frame_timer(&mut self) {
-        self.clock.start();
+        if !self.uses_composition() {
+            self.clock.start();
+        }
+    }
+
+    fn cancel_reveal(&mut self) {
+        if self.uses_composition() && self.reveal_anim.is_some() {
+            unsafe {
+                let _ = KillTimer(Some(self.hwnd), TIMER_REVEAL);
+            }
+            self.reveal_anim = None;
+        }
+    }
+
+    /// While polling, the elapsed "m:ss" is text: refresh it once a second
+    /// instead of redrawing every frame.
+    fn update_label_timer(&mut self) {
+        let should_run = self.uses_composition() && matches!(self.state, UiState::Busy { .. });
+        if should_run && !self.label_timer {
+            unsafe {
+                SetTimer(Some(self.hwnd), TIMER_LABEL, 1_000, None);
+            }
+            self.label_timer = true;
+        } else if !should_run && self.label_timer {
+            unsafe {
+                let _ = KillTimer(Some(self.hwnd), TIMER_LABEL);
+            }
+            self.label_timer = false;
+        }
     }
 
     fn schedule_trim(&self) {
@@ -893,6 +1017,34 @@ impl App {
                     self.show_tooltip();
                 } else {
                     self.tooltip_scheduled = false;
+                }
+            }
+            TIMER_LABEL => {
+                if matches!(self.state, UiState::Busy { .. }) {
+                    self.render_frame();
+                } else {
+                    unsafe {
+                        let _ = KillTimer(Some(self.hwnd), TIMER_LABEL);
+                    }
+                    self.label_timer = false;
+                }
+            }
+            TIMER_REVEAL => {
+                if let Some(animation) = self.reveal_anim {
+                    self.reveal = animation.value_at(Instant::now());
+                    if animation.is_finished() {
+                        self.reveal = 1.0;
+                        self.reveal_anim = None;
+                        unsafe {
+                            let _ = KillTimer(Some(self.hwnd), TIMER_REVEAL);
+                        }
+                    }
+                    self.refresh_scene();
+                    self.render_frame();
+                } else {
+                    unsafe {
+                        let _ = KillTimer(Some(self.hwnd), TIMER_REVEAL);
+                    }
                 }
             }
             _ => {}
@@ -1211,6 +1363,20 @@ impl App {
         )
     }
 
+    /// Same offset without the animation factor: the compositor scales it.
+    fn anchor_raw(&self) -> (f32, f32) {
+        if !self.transition {
+            return (0.0, 0.0);
+        }
+        let (compact_w, compact_h) = window::compact_px(self.dpi);
+        let center_x = self.compact_pos.0 + compact_w / 2 - self.window_rect.left;
+        let center_y = self.compact_pos.1 + compact_h / 2 - self.window_rect.top;
+        (
+            window::px_to_dip(center_x, self.dpi) - self.window_dip.0 * 0.5,
+            window::px_to_dip(center_y, self.dpi) - self.window_dip.1 * 0.5,
+        )
+    }
+
     /// The pill's rectangle in window client DIPs.
     fn pill_rect(&self) -> (f32, f32, f32, f32) {
         let (w, h) = self.current_dip_size();
@@ -1290,20 +1456,23 @@ impl App {
 
     fn render_frame(&mut self) {
         self.refresh_scene();
+        let composition = self.uses_composition();
         let hover = self.hover.clamp(0.0, 1.0);
         let progress = match &self.state {
             UiState::Busy { progress, .. } => *progress,
             _ => None,
         };
         // Glide towards the reported value instead of jumping in 1 % steps.
-        self.shown_progress = match progress {
-            Some(target) if self.theme.animations_enabled => {
-                lerp(self.shown_progress, target, 0.25)
-            }
-            Some(target) => target,
-            None => 0.0,
-        };
-        let ring = if matches!(self.state, UiState::Busy { .. }) {
+        if !composition {
+            self.shown_progress = match progress {
+                Some(target) if self.theme.animations_enabled => {
+                    lerp(self.shown_progress, target, 0.25)
+                }
+                Some(target) => target,
+                None => 0.0,
+            };
+        }
+        let ring = if !composition && matches!(self.state, UiState::Busy { .. }) {
             let started = self.busy_started.filter(|_| self.theme.animations_enabled);
             Some(match (progress, started) {
                 (Some(_), _) => (
@@ -1326,6 +1495,7 @@ impl App {
         } else {
             0.0
         };
+        let busy = matches!(self.state, UiState::Busy { .. });
         let state = DrawState {
             scene: &self.scene,
             theme: self.theme,
@@ -1335,17 +1505,27 @@ impl App {
             compact_alpha,
             alpha: 1.0,
             hover_scale: 1.0 + 0.1 * hover,
-            glow: hover,
+            glow: if composition { 0.0 } else { hover },
             ring,
-            label: self.busy_label(progress),
+            label: if composition {
+                self.composition_label(progress)
+            } else {
+                self.busy_label(progress)
+            },
             badge,
             hovered: self.mouse_inside || self.drag_valid,
             cancel_hint: self.mouse_inside
                 && self.dragging.is_none()
                 && matches!(self.state, UiState::Busy { .. }),
+            busy,
+            progress,
         };
         let (layout_w, layout_h) = self.window_dip;
-        let (anchor_x, anchor_y) = self.anchor();
+        let (anchor_x, anchor_y) = if composition {
+            self.anchor_raw()
+        } else {
+            self.anchor()
+        };
         let failed = self
             .renderer
             .as_mut()
@@ -1357,14 +1537,39 @@ impl App {
             })
             .unwrap_or(false);
         if failed {
-            // Release the old DirectComposition target before creating another
-            // target for the same HWND.
+            // Release the old composition target before creating another one
+            // for the same HWND.
             self.renderer = None;
-            if let Ok(mut renderer) = Renderer::new(self.hwnd, self.dpi, self.theme) {
+            let prefer_composition = crate::ui::composition_supported(&self.theme);
+            if let Ok(mut renderer) = Renderer::new(
+                self.hwnd,
+                self.dpi,
+                self.theme,
+                prefer_composition,
+                self.acrylic,
+            ) {
                 let _ = renderer.set_layout(layout_w, layout_h, anchor_x, anchor_y);
                 let _ = renderer.render(&state);
                 self.renderer = Some(renderer);
             }
+        }
+    }
+
+    /// Elapsed "m:ss" while polling, "42%" while hashing/uploading. The
+    /// compositor only redraws the text when this string changes.
+    fn composition_label(&self, progress: Option<f32>) -> Option<String> {
+        if let Some(progress) = progress {
+            return Some(format!(
+                "{}%",
+                (progress.clamp(0.0, 1.0) * 100.0).round() as u32
+            ));
+        }
+        match (&self.state, self.polling_since) {
+            (UiState::Busy { phase: Phase::Polling, .. }, Some(since)) => {
+                let seconds = since.elapsed().as_secs();
+                Some(format!("{}:{:02}", seconds / 60, seconds % 60))
+            }
+            _ => None,
         }
     }
 
@@ -1373,6 +1578,12 @@ impl App {
     /// The widget is a circle/capsule drawn with per-pixel alpha, so DWM must
     /// not add a backdrop, rounded corners or a square border around it.
     fn apply_backdrop(&mut self) {
+        if self.uses_composition() {
+            // The composition tree owns the shape and the blur.
+            window::make_frameless(self.hwnd);
+            window::set_host_backdrop(self.hwnd, self.acrylic);
+            return;
+        }
         window::apply_backdrop(self.hwnd, &self.theme, BackdropMode::Solid);
         window::make_frameless(self.hwnd);
     }
@@ -1380,8 +1591,18 @@ impl App {
     fn refresh_theme(&mut self) {
         let theme = Theme::detect();
         let dark_changed = theme.dark != self.theme.dark;
+        let acrylic = theme.is_win11() && !theme.effective_solid();
+        let rebuild = acrylic != self.acrylic;
         self.theme = theme;
-        if let Some(renderer) = self.renderer.as_mut() {
+        if rebuild {
+            // Transparency toggled: the backdrop brush cannot be swapped, so
+            // rebuild the target once.
+            self.acrylic = acrylic;
+            let prefer_composition = crate::ui::composition_supported(&theme);
+            self.renderer = None;
+            self.renderer =
+                Renderer::new(self.hwnd, self.dpi, theme, prefer_composition, acrylic).ok();
+        } else if let Some(renderer) = self.renderer.as_mut() {
             let _ = renderer.set_theme(theme);
         }
         if dark_changed {
@@ -1413,7 +1634,15 @@ impl App {
         self.compact_pos = clamp_compact(self.compact_pos, new_w, new_h);
 
         self.renderer = None;
-        self.renderer = Renderer::new(self.hwnd, dpi, self.theme).ok();
+        let prefer_composition = crate::ui::composition_supported(&self.theme);
+        self.renderer = Renderer::new(
+            self.hwnd,
+            dpi,
+            self.theme,
+            prefer_composition,
+            self.acrylic,
+        )
+        .ok();
         if let Some(tooltip) = &mut self.tooltip {
             tooltip.set_theme(&self.theme);
         }
@@ -1605,10 +1834,13 @@ Puedes soltar más archivos. Clic para cancelar."))
 
     fn kill_all_timers(&mut self) {
         self.clock.stop();
+        self.label_timer = false;
         for id in [
             TIMER_AUTOCLOSE,
             TIMER_TRIM,
             TIMER_TOOLTIP,
+            TIMER_LABEL,
+            TIMER_REVEAL,
         ] {
             unsafe {
                 let _ = KillTimer(Some(self.hwnd), id);

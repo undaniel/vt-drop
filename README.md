@@ -4,10 +4,10 @@ Widget flotante, sin instalador y sin privilegios de administrador, para escanea
 
 ## Estado actual
 
-- **Forma propia**: círculo en reposo que se transforma en cápsula al mostrar un resultado. Se dibuja con alfa por píxel (Direct2D + DirectComposition). DWM no añade esquinas, borde ni fondo. Al pasar el mouse o un archivo por encima, el contorno toma el color de acento.
-- **Motion Fluent**: curva de WinUI `cubic-bezier(0,0,0,1)` y duraciones de WinUI: 250 ms al expandir, 167 ms al colapsar y en los hover. El texto entra después del panel con fundido y un deslizamiento de 8 px. El ratio cuenta hacia arriba y el color pasa del acento al verde, ámbar o rojo. El anillo de progreso imita al de WinUI: el arco crece y se encoge mientras gira.
-- **Frames sincronizados con la pantalla**: un hilo espera cada composición de DWM (`DwmFlush`) y llama a `InvalidateRect`. La animación avanza en `WM_PAINT`, que Windows solo entrega cuando no hay entrada pendiente, así que animar nunca bloquea el mouse. El hilo solo existe mientras hay animación; en reposo no hay timers.
-- **Una sola redimensión por transición**: al expandir o colapsar, la ventana toma una vez su tamaño final. En cada frame solo se mueve contenido de DirectComposition, sin `SetWindowPos`.
+- **Forma propia**: círculo en reposo que se transforma en cápsula al mostrar un resultado. Se dibuja con alfa por píxel sobre `Windows.UI.Composition` (o Direct2D + DirectComposition v1 como respaldo). DWM no añade esquinas, borde ni fondo. Al pasar el mouse o un archivo por encima, el contorno toma el color de acento. En Windows 11 con transparencias activas, el círculo y la cápsula tienen acrílico real (`CreateHostBackdropBrush`).
+- **Motion Fluent**: curva de WinUI `cubic-bezier(0,0,0,1)` y duraciones de WinUI: 250 ms al expandir, 167 ms al colapsar y en los hover. El texto entra después del panel con fundido y un deslizamiento de 8 px. El ratio cuenta hacia arriba y el color pasa del acento al verde, ámbar o rojo. El anillo de progreso imita al de WinUI: el arco gira, y en modo indeterminado lo hace el propio compositor.
+- **Animaciones del compositor**: la expansión, el colapso, el hover y el anillo los ejecuta DWM en su hilo, a la frecuencia real del monitor (60/120/144 Hz), aunque el hilo de UI esté ocupado con el menú. En reposo no hay timers ni hilos de animación.
+- **Una sola redimensión por transición**: al expandir o colapsar, la ventana toma una vez su tamaño final. Después solo se animan visuales, sin `SetWindowPos`.
 - **Soltar archivos en cualquier momento**: en reposo, con un resultado o un error visible, mientras escanea o mientras pregunta si subir. Durante un escaneo, los archivos nuevos se suman al lote en curso y el contador crece al instante (`1/2`, `2/3`…).
 - **Cancelar**: al pasar el mouse sobre el círculo mientras escanea aparece un ✕; un clic cancela. También desde el menú contextual (**Cancelar análisis**). El hash y la subida se cortan a mitad de lectura.
 - **Progreso real**:
@@ -27,7 +27,7 @@ Widget flotante, sin instalador y sin privilegios de administrador, para escanea
   - Tema de apps claro/oscuro (`AppsUseLightTheme`) y color de acento, con cambio en caliente.
   - Respeta "Efectos de animación" de Windows.
 
-Medido en Windows 11 26300 (x64, 1920×1080 al 100 %, iGPU Intel, WARP), 2026-11-16:
+Medido con el renderer de respaldo en Windows 11 26300 (x64, 1920×1080 al 100 %, iGPU Intel, WARP), 2026-11-16. El backend de `Windows.UI.Composition` está pendiente de medir (ver `MIGRACION_COMPOSITION.md`):
 
 | Métrica | Valor |
 |---|---|
@@ -40,7 +40,7 @@ Medido en Windows 11 26300 (x64, 1920×1080 al 100 %, iGPU Intel, WARP), 2026-11
 | CPU de un escaneo de archivo conocido | ~0.1 s en total (arranque, hash, consulta y expansión) |
 | Dependencias externas | Solo DLLs del sistema (D3D11/WARP, D2D1, DWrite, DWM, comctl32…) |
 
-> Se elige WARP primero porque el driver de la GPU añadía por sí solo decenas de MB de memoria privada en esta máquina. Si WARP no está disponible, se intenta el hardware.
+> El renderer de respaldo elige WARP primero porque el driver de la GPU añadía por sí solo decenas de MB de memoria privada en esta máquina. El backend de composición usa el dispositivo de hardware, porque `CreateGraphicsDevice` trabaja con el mismo dispositivo Direct2D que dibuja las superficies de texto.
 
 ## Compilar
 
@@ -126,16 +126,17 @@ Con varios archivos, el contador muestra `2/5`. Al final se muestra el peor rati
 - `requests_per_minute`: 1–60. 4 es el límite público.
 - `position`: esquina superior izquierda física del círculo. Se ajusta al área de trabajo del monitor.
 
-La opción `backdrop` y la tecla F9 que la alternaba ya no existen: el widget dibuja su propia forma redonda y el acrílico de DWM solo se aplica a rectángulos. Un `config.json` antiguo que la incluya sigue cargando sin problema. El menú y el diálogo de la API key siguen usando acrílico.
+La opción `backdrop` y la tecla F9 que la alternaba ya no existen: el widget dibuja su propia forma y el fondo lo compone la app. En Windows 11 con transparencias activas usa acrílico real dentro del círculo; en Windows 10 o con transparencias desactivadas, el color sólido del tema. Un `config.json` antiguo que incluya `backdrop` sigue cargando sin problema. El menú y el diálogo de la API key siguen usando DirectComposition v1.
 
 ## Arquitectura
 
 ```
 main.rs / lib.rs      WinMain, mutex de instancia, COM/OLE, argumentos, message loop
 app.rs                máquina de estados UI, transiciones, hit-testing, menú, cancelación
-ui/window.rs          DWM: sin marco ni bordes, tema, topmost, DPI
-ui/render.rs          D3D11 (WARP) + DXGI + DComposition + D2D/DWrite: círculo/cápsula, anillo, %
-ui/animation.rs       curva Fluent, anillo WinUI, FrameClock (DwmFlush → InvalidateRect)
+ui/window.rs          DWM: sin marco ni bordes, tema, topmost, DPI, host backdrop
+ui/composition.rs     Windows.UI.Composition: círculo/cápsula, acrílico, animaciones, superficies D2D
+ui/render.rs          respaldo: D3D11 (WARP) + DXGI + DComposition + D2D/DWrite
+ui/animation.rs       curva Fluent, anillo WinUI, FrameClock solo para el respaldo
 ui/menu.rs            menú contextual propio estilo Windows 11
 ui/menu_render.rs     dibujo del menú sobre la superficie compartida
 ui/surface.rs         superficie D3D11/D2D/DComp compartida + entrada animada por el compositor
@@ -171,13 +172,15 @@ La UI nunca bloquea: el worker es dueño de la cola y de la red. La comunicació
 
 ### Render y DPI
 
-El swap chain se crea una vez al tamaño máximo (368×116 DIP). En cada transición, la ventana toma una sola vez el tamaño final y DirectComposition desplaza el contenido; no se recrean buffers por frame. Los desplazamientos de DirectComposition van en píxeles físicos, así que la posición es correcta a cualquier escala. Al cambiar de monitor se recrea el renderer con el nuevo DPI.
+El backend principal es `Windows.UI.Composition`. La ventana tiene un `DesktopWindowTarget` y un árbol de visuales que DWM dibuja y anima: el recorte de círculo/cápsula es un `CompositionGeometricClip`, el fondo es un `CreateHostBackdropBrush` con tinte, y cada texto (ratio, porcentaje, tiempo, avisos, botones, badge) vive en un `CompositionDrawingSurface` que solo se redibuja cuando cambia su contenido. Las animaciones de expansión/colapso usan keyframes con la curva Fluent y un `CompositionScopedBatch` avisa al colapsar.
 
-Hay una alternativa más nativa que no se implementó: migrar el dibujo a `Windows.UI.Composition`. Ver [MIGRACION_COMPOSITION.md](MIGRACION_COMPOSITION.md).
+La ventana toma una sola vez el tamaño final por transición; después nada llama a `SetWindowPos`. Las coordenadas de composición van en píxeles físicos y las superficies se crean a `DPI / 96`, así que el texto queda nítido a cualquier escala. Al cambiar de monitor se recrea el renderer.
+
+En Windows 10 2004+ funciona el mismo backend con fondo sólido; el acrílico requiere Windows 11 y transparencias activas. Si `CreateDesktopWindowTarget` falla, `ui/mod.rs` cae al renderer antiguo (D3D11 WARP + DirectComposition v1 + Direct2D) sin cambiar el resto de la app. Para forzarlo: `VTDROP_RENDERER=legacy`. Ver [MIGRACION_COMPOSITION.md](MIGRACION_COMPOSITION.md).
 
 ## Pruebas
 
-28 pruebas unitarias. Cubren hash EICAR, estadísticas, configuración, curvas de animación, continuidad del anillo, límite de peticiones, cola del lote y cancelación sin fugas al lote siguiente:
+36 pruebas unitarias. Cubren hash EICAR, estadísticas, configuración, curvas de animación, continuidad del anillo, geometría del compositor (círculo → cápsula, ancla y glyph), límite de peticiones, cola del lote y cancelación sin fugas al lote siguiente. Una de ellas crea un `DesktopWindowTarget` real sobre una ventana oculta y dibuja tres frames con el compositor.
 
 ```powershell
 cargo test --release
@@ -232,7 +235,7 @@ Verificado con mouse y arrastres reales y capturas de pantalla (2026-11-16):
 - El menú contextual es un popup propio (`ui/menu.rs`), no un `HMENU`: `TrackPopupMenu` siempre dibuja el menú clásico cuadrado, y el menú redondeado del Explorador es un `MenuFlyout` de XAML/WinUI. Usa el mismo pipeline DirectComposition + Direct2D, con acrílico de DWM, Segoe UI Variable, hover y teclado, y sigue el tema claro/oscuro.
 - El diálogo de la API key (`config/key_dialog.rs` + `ui/dialog_render.rs`) tampoco usa `EDIT`/`BUTTON` nativos. La clave se muestra enmascarada y se valida localmente antes de cifrarla.
 - **Diferencias con la especificación original** (`GUIA.md`):
-  - El widget no usa acrílico, porque el círculo no es compatible con el acrílico rectangular de DWM.
+  - El widget usa acrílico real dentro del círculo solo en Windows 11 con transparencias activas; en Windows 10 queda el fondo sólido del tema (DWM solo ofrece acrílico rectangular).
   - La expansión usa la curva Fluent en vez de un rebote tipo spring.
   - Tras subir un archivo, el análisis se revisa cada 15 s en lugar de con backoff.
   - Se quitaron la opción `backdrop` y la tecla F9.

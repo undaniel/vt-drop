@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod composition;
 pub mod dialog_render;
 pub mod menu;
 pub mod menu_render;
@@ -8,6 +9,112 @@ pub mod tooltip;
 pub mod window;
 
 use crate::theme::Rgb;
+
+/// Which drawing backend the widget uses.
+///
+/// `Composition` is the native visual layer: DWM animates and clips the pill,
+/// and `CreateHostBackdropBrush` gives real acrylic inside the shape. The
+/// original Direct2D/DirectComposition renderer stays as a fallback for older
+/// builds and for `VTDROP_RENDERER=legacy`.
+pub enum Renderer {
+    Legacy(render::Renderer),
+    Composition(composition::CompositionRenderer),
+}
+
+/// True when this OS can host a `Windows.UI.Composition` desktop target.
+pub fn composition_supported(theme: &crate::theme::Theme) -> bool {
+    if std::env::var_os("VTDROP_RENDERER")
+        .map(|value| value.to_string_lossy().eq_ignore_ascii_case("legacy"))
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    // CompositionGeometricClip (the circle/capsule mask) needs 1903+; 2004 is
+    // the oldest build where the Win32 composition host is reliable.
+    theme.build >= 19_041
+}
+
+impl Renderer {
+    pub fn new(
+        hwnd: windows::Win32::Foundation::HWND,
+        dpi: u32,
+        theme: crate::theme::Theme,
+        prefer_composition: bool,
+        acrylic: bool,
+    ) -> windows::core::Result<Self> {
+        if prefer_composition {
+            match composition::CompositionRenderer::new(hwnd, dpi, theme, acrylic) {
+                Ok(renderer) => return Ok(Self::Composition(renderer)),
+                Err(_) => {
+                    // Fall back to the battle-tested swap chain backend.
+                }
+            }
+        }
+        Ok(Self::Legacy(render::Renderer::new(hwnd, dpi, theme)?))
+    }
+
+    pub fn is_composition(&self) -> bool {
+        matches!(self, Self::Composition(_))
+    }
+
+    pub fn set_theme(&mut self, theme: crate::theme::Theme) -> windows::core::Result<()> {
+        match self {
+            Self::Legacy(renderer) => renderer.set_theme(theme),
+            Self::Composition(renderer) => renderer.set_theme(theme),
+        }
+    }
+
+    pub fn set_layout(
+        &mut self,
+        width_dip: f32,
+        height_dip: f32,
+        anchor_x: f32,
+        anchor_y: f32,
+    ) -> windows::core::Result<()> {
+        match self {
+            Self::Legacy(renderer) => renderer.set_layout(width_dip, height_dip, anchor_x, anchor_y),
+            Self::Composition(renderer) => {
+                renderer.set_layout(width_dip, height_dip, anchor_x, anchor_y)
+            }
+        }
+    }
+
+    pub fn render(&mut self, state: &DrawState<'_>) -> windows::core::Result<()> {
+        match self {
+            Self::Legacy(renderer) => renderer.render(state),
+            Self::Composition(renderer) => renderer.render(state),
+        }
+    }
+
+    pub fn pixel_size(&self) -> (u32, u32) {
+        match self {
+            Self::Legacy(renderer) => renderer.pixel_size(),
+            Self::Composition(renderer) => renderer.pixel_size(),
+        }
+    }
+
+    pub fn dpi(&self) -> f32 {
+        match self {
+            Self::Legacy(renderer) => renderer.dpi(),
+            Self::Composition(renderer) => renderer.dpi(),
+        }
+    }
+
+    /// The expand value the compositor is currently showing, for hit testing.
+    pub fn animated_expand(&self) -> Option<f32> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Composition(renderer) => Some(renderer.animated_expand()),
+        }
+    }
+
+    pub fn is_animating(&self) -> bool {
+        match self {
+            Self::Legacy(_) => false,
+            Self::Composition(renderer) => renderer.is_animating(),
+        }
+    }
+}
 
 /// The visual representation of the widget. This is intentionally independent
 /// from the worker protocol so rendering cannot block on network state.
@@ -81,4 +188,8 @@ pub struct DrawState<'a> {
     pub hovered: bool,
     /// Busy and hovered: a ✕ replaces the centre to say "click to cancel".
     pub cancel_hint: bool,
+    /// A scan is running: the progress ring is visible.
+    pub busy: bool,
+    /// Determinate progress 0..1 for hashing/uploading, when known.
+    pub progress: Option<f32>,
 }

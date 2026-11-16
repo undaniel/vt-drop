@@ -248,6 +248,8 @@ impl Renderer {
             badge: None,
             hovered: false,
             cancel_hint: false,
+            busy: false,
+            progress: None,
         })?;
         Ok(renderer)
     }
