@@ -18,33 +18,20 @@ use std::sync::Arc;
 use windows::core::{w, Interface, Result as WinResult, HSTRING};
 use windows::Foundation::{Size, TimeSpan, TypedEventHandler};
 use windows::Graphics::DirectX::{DirectXAlphaMode, DirectXPixelFormat};
-use windows::UI::Color;
-use windows::UI::Composition::Desktop::DesktopWindowTarget;
-use windows::UI::Composition::{
-    AnimationIterationBehavior, CompositionBackdropBrush, CompositionBatchCompletedEventArgs,
-    CompositionBatchTypes, CompositionBrush, CompositionClip, CompositionColorBrush,
-    CompositionDrawingSurface, CompositionEllipseGeometry, CompositionGeometricClip,
-    CompositionGraphicsDevice, CompositionRoundedRectangleGeometry,
-    CompositionScopedBatch, CompositionShape, CompositionStretch,
-    CompositionStrokeCap, CompositionStrokeLineJoin, CompositionSurfaceBrush, Compositor,
-    ContainerVisual, CubicBezierEasingFunction, ShapeVisual, SpriteVisual,
-};
-use windows_numerics::{Matrix3x2, Vector2, Vector3};
 use windows::Win32::Foundation::{E_FAIL, HMODULE, HWND, POINT};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_BEZIER_SEGMENT, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_BEGIN_HOLLOW,
-    D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_GRADIENT_STOP, D2D_SIZE_F,
-    D2D_RECT_F,
+    D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_GRADIENT_STOP, D2D_RECT_F, D2D_SIZE_F,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL,
-    D2D1_SWEEP_DIRECTION_CLOCKWISE, ID2D1Brush, ID2D1DeviceContext, ID2D1Factory, ID2D1Factory1,
+    D2D1CreateFactory, ID2D1Brush, ID2D1DeviceContext, ID2D1Factory, ID2D1Factory1,
     ID2D1GeometrySink, ID2D1PathGeometry, ID2D1RadialGradientBrush, ID2D1RenderTarget,
-    ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_BRUSH_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_SOLID,
-    D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_GAMMA_2_2, D2D1_LINE_JOIN_ROUND,
-    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES,
+    ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_ARC_SEGMENT,
+    D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL, D2D1_BRUSH_PROPERTIES, D2D1_CAP_STYLE_FLAT,
+    D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_SOLID, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE,
+    D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_GAMMA_2_2,
+    D2D1_LINE_JOIN_ROUND, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT,
+    D2D1_STROKE_STYLE_PROPERTIES, D2D1_SWEEP_DIRECTION_CLOCKWISE,
     D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 use windows::Win32::Graphics::Direct3D::{
@@ -65,12 +52,24 @@ use windows::Win32::Graphics::DirectWrite::{
 use windows::Win32::Graphics::Dxgi::IDXGIAdapter;
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use windows::Win32::System::WinRT::Composition::{
-    ICompositorDesktopInterop, ICompositorInterop, ICompositionDrawingSurfaceInterop,
+    ICompositionDrawingSurfaceInterop, ICompositorDesktopInterop, ICompositorInterop,
 };
 use windows::Win32::System::WinRT::{
     CreateDispatcherQueueController, DispatcherQueueOptions, DQTAT_COM_NONE, DQTYPE_THREAD_CURRENT,
 };
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
+use windows::UI::Color;
+use windows::UI::Composition::Desktop::DesktopWindowTarget;
+use windows::UI::Composition::{
+    AnimationIterationBehavior, CompositionBackdropBrush, CompositionBatchCompletedEventArgs,
+    CompositionBatchTypes, CompositionBrush, CompositionClip, CompositionColorBrush,
+    CompositionDrawingSurface, CompositionEllipseGeometry, CompositionGeometricClip,
+    CompositionGraphicsDevice, CompositionRoundedRectangleGeometry, CompositionScopedBatch,
+    CompositionShape, CompositionStretch, CompositionStrokeCap, CompositionStrokeLineJoin,
+    CompositionSurfaceBrush, Compositor, ContainerVisual, CubicBezierEasingFunction, ShapeVisual,
+    SpriteVisual,
+};
+use windows_numerics::{Matrix3x2, Vector2, Vector3};
 
 use crate::theme::{Rgb, Theme};
 use crate::ui::animation::lerp;
@@ -105,6 +104,9 @@ const BADGE_H: f32 = 16.0;
 
 thread_local! {
     /// One dispatcher queue per thread; creating a second one fails.
+    // The initializer is already `const`; the lint cannot see through the WinRT
+    // type, which has no `const` constructor.
+    #[allow(clippy::missing_const_for_thread_local)]
     static DISPATCHER: RefCell<Option<windows::System::DispatcherQueueController>> =
         const { RefCell::new(None) };
 }
@@ -171,8 +173,7 @@ impl Layer {
             right: self.pixel_w as i32,
             bottom: self.pixel_h as i32,
         };
-        let context: ID2D1DeviceContext =
-            unsafe { interop.BeginDraw(Some(&update), &mut offset)? };
+        let context: ID2D1DeviceContext = unsafe { interop.BeginDraw(Some(&update), &mut offset)? };
         // The update lands at an atlas offset; draw through it so the content
         // stays at the surface's top-left.
         let scale = self.dpi / 96.0;
@@ -374,8 +375,7 @@ impl CompositionRenderer {
         status.SetBrush(&status_brush)?;
         status.SetOpacity(0.0)?;
 
-        let border_brush =
-            compositor.CreateColorBrushWithColor(ui_rgba(theme.border_tint()))?;
+        let border_brush = compositor.CreateColorBrushWithColor(ui_rgba(theme.border_tint()))?;
         let ring_accent_brush =
             compositor.CreateColorBrushWithColor(ui_color(theme.accent, 0.95))?;
         let ring_track_brush =
@@ -572,8 +572,7 @@ impl CompositionRenderer {
             .SetColor(ui_color(theme.accent, 0.95))?;
         self.ring_track_brush
             .SetColor(ui_color(theme.muted(), 0.20))?;
-        self.border_brush
-            .SetColor(ui_rgba(theme.border_tint()))?;
+        self.border_brush.SetColor(ui_rgba(theme.border_tint()))?;
         self.glyph_key = None;
         self.panel_key = None;
         self.label_key = None;
@@ -691,8 +690,10 @@ impl CompositionRenderer {
             Y: h.max(1.0),
         })?;
         self.pill_geometry.SetOffset(Vector2 { X: x, Y: y })?;
-        self.pill_geometry
-            .SetCornerRadius(Vector2 { X: radius, Y: radius })?;
+        self.pill_geometry.SetCornerRadius(Vector2 {
+            X: radius,
+            Y: radius,
+        })?;
 
         let inset = 0.5 * s;
         self.border_geometry.SetSize(Vector2 {
@@ -860,73 +861,80 @@ impl CompositionRenderer {
         };
 
         let geometry = (|| -> WinResult<()> {
-            animate_vector2(&self.pill_geometry, "Size", from_size, to_size, span, &easing)?;
-        animate_vector2(
-            &self.pill_geometry,
-            "Offset",
-            from_offset,
-            to_offset,
-            span,
-            &easing,
-        )?;
-        animate_vector2(
-            &self.pill_geometry,
-            "CornerRadius",
-            Vector2 {
-                X: from_radius,
-                Y: from_radius,
-            },
-            Vector2 {
-                X: to_radius,
-                Y: to_radius,
-            },
-            span,
-            &easing,
-        )?;
+            animate_vector2(
+                &self.pill_geometry,
+                "Size",
+                from_size,
+                to_size,
+                span,
+                &easing,
+            )?;
+            animate_vector2(
+                &self.pill_geometry,
+                "Offset",
+                from_offset,
+                to_offset,
+                span,
+                &easing,
+            )?;
+            animate_vector2(
+                &self.pill_geometry,
+                "CornerRadius",
+                Vector2 {
+                    X: from_radius,
+                    Y: from_radius,
+                },
+                Vector2 {
+                    X: to_radius,
+                    Y: to_radius,
+                },
+                span,
+                &easing,
+            )?;
 
-        let inset = 0.5 * s;
-        animate_vector2(
-            &self.border_geometry,
-            "Size",
-            Vector2 {
-                X: (from_size.X - inset * 2.0).max(1.0),
-                Y: (from_size.Y - inset * 2.0).max(1.0),
-            },
-            Vector2 {
-                X: (to_size.X - inset * 2.0).max(1.0),
-                Y: (to_size.Y - inset * 2.0).max(1.0),
-            },
-            span,
-            &easing,
-        )?;
-        animate_vector2(
-            &self.border_geometry,
-            "Offset",
-            Vector2 {
-                X: from_offset.X + inset,
-                Y: from_offset.Y + inset,
-            },
-            Vector2 {
-                X: to_offset.X + inset,
-                Y: to_offset.Y + inset,
-            },
-            span,
-            &easing,
-        )?;
-        animate_vector2(
-            &self.border_geometry,
-            "CornerRadius",
-            Vector2 {
-                X: (from_radius - inset).max(0.0),
-                Y: (from_radius - inset).max(0.0),
-            },
-            Vector2 {
-                X: (to_radius - inset).max(0.0),
-                Y: (to_radius - inset).max(0.0),
-            },
-            span,
-            &easing,
-        )?;
+            let inset = 0.5 * s;
+            animate_vector2(
+                &self.border_geometry,
+                "Size",
+                Vector2 {
+                    X: (from_size.X - inset * 2.0).max(1.0),
+                    Y: (from_size.Y - inset * 2.0).max(1.0),
+                },
+                Vector2 {
+                    X: (to_size.X - inset * 2.0).max(1.0),
+                    Y: (to_size.Y - inset * 2.0).max(1.0),
+                },
+                span,
+                &easing,
+            )?;
+            animate_vector2(
+                &self.border_geometry,
+                "Offset",
+                Vector2 {
+                    X: from_offset.X + inset,
+                    Y: from_offset.Y + inset,
+                },
+                Vector2 {
+                    X: to_offset.X + inset,
+                    Y: to_offset.Y + inset,
+                },
+                span,
+                &easing,
+            )?;
+            animate_vector2(
+                &self.border_geometry,
+                "CornerRadius",
+                Vector2 {
+                    X: (from_radius - inset).max(0.0),
+                    Y: (from_radius - inset).max(0.0),
+                },
+                Vector2 {
+                    X: (to_radius - inset).max(0.0),
+                    Y: (to_radius - inset).max(0.0),
+                },
+                span,
+                &easing,
+            )?;
             Ok(())
         })();
         if geometry.is_err() {
@@ -1238,7 +1246,15 @@ impl CompositionRenderer {
                 base,
             };
             if alert {
-                canvas.alert_icon(Vector2 { X: SHIELD_CX, Y: SHIELD_CY }, 14.0, color, 1.0);
+                canvas.alert_icon(
+                    Vector2 {
+                        X: SHIELD_CX,
+                        Y: SHIELD_CY,
+                    },
+                    14.0,
+                    color,
+                    1.0,
+                );
             } else {
                 canvas.shield(
                     geometry,
@@ -1556,8 +1572,7 @@ impl CompositionRenderer {
     fn draw_arc(&self, fraction: f32) -> WinResult<()> {
         let accent = self.theme.accent;
         self.arc_layer.draw(|context, _base| {
-            let Some(geometry) =
-                create_arc_geometry(&self._d2d_factory, fraction.clamp(0.02, 1.0))
+            let Some(geometry) = create_arc_geometry(&self._d2d_factory, fraction.clamp(0.02, 1.0))
             else {
                 return Ok(());
             };
@@ -1629,7 +1644,7 @@ impl Canvas<'_> {
     fn set(&self, color: D2D1_COLOR_F) {
         unsafe {
             self.brush.SetColor(&color);
-            let _ = self.brush.SetOpacity(1.0);
+            self.brush.SetOpacity(1.0);
         }
     }
 
@@ -2251,11 +2266,13 @@ mod tests {
     fn composition_target_renders_a_frame() {
         use windows::core::w;
         use windows::Win32::Foundation::HINSTANCE;
-        use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+        use windows::Win32::System::Com::{
+            CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED,
+        };
         use windows::Win32::System::LibraryLoader::GetModuleHandleW;
         use windows::Win32::UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, CS_HREDRAW, CS_VREDRAW,
-            WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_POPUP, WNDCLASSW,
+            WNDCLASSW, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_POPUP,
         };
 
         let class_name = w!("VTDropCompositionTest");
@@ -2309,10 +2326,7 @@ mod tests {
         // The morph relies on animated geometry properties.
         let easing = renderer
             .compositor
-            .CreateCubicBezierEasingFunction(
-                Vector2 { X: 0.0, Y: 0.0 },
-                Vector2 { X: 0.0, Y: 1.0 },
-            )
+            .CreateCubicBezierEasingFunction(Vector2 { X: 0.0, Y: 0.0 }, Vector2 { X: 0.0, Y: 1.0 })
             .expect("easing");
         for property in ["Size", "Offset", "CornerRadius"] {
             animate_vector2(
@@ -2320,9 +2334,7 @@ mod tests {
                 property,
                 Vector2 { X: 64.0, Y: 64.0 },
                 Vector2 { X: 176.0, Y: 52.0 },
-                TimeSpan {
-                    Duration: 25_000,
-                },
+                TimeSpan { Duration: 25_000 },
                 &easing,
             )
             .unwrap_or_else(|error| panic!("{property} is not animatable: {error}"));

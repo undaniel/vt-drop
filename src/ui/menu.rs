@@ -6,9 +6,9 @@
 //! `TrackPopupMenu`, so the typography, dark mode, keyboard navigation,
 //! accessibility and screen-edge handling are exactly Windows'.
 
-use windows::core::{PCWSTR, HSTRING};
-use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
+use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, PostMessageW, SetForegroundWindow, TrackPopupMenu,
     MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, TPM_LEFTALIGN, TPM_NONOTIFY, TPM_RETURNCMD,
@@ -101,11 +101,7 @@ pub fn show(owner: HWND, _theme: Theme, items: Vec<MenuItem>, anchor: POINT) -> 
         let _ = SetForegroundWindow(owner);
         let command = TrackPopupMenu(
             menu,
-            TPM_RETURNCMD
-                | TPM_NONOTIFY
-                | TPM_RIGHTBUTTON
-                | TPM_LEFTALIGN
-                | TPM_TOPALIGN,
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_TOPALIGN,
             anchor.x,
             anchor.y,
             None,

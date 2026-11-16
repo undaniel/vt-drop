@@ -56,4 +56,3 @@ mod tests {
         assert_eq!(wide("ab"), vec![b'a' as u16, b'b' as u16, 0]);
     }
 }
-

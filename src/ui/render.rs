@@ -11,21 +11,22 @@ use std::mem::ManuallyDrop;
 use windows::core::{w, IUnknown, Interface, Result as WinResult, BOOL};
 use windows::Win32::Foundation::{E_FAIL, HMODULE, HWND};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_BEGIN_HOLLOW, D2D_SIZE_F,
-    D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
-    D2D_RECT_F,
+    D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_BEZIER_SEGMENT, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
+    D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_GRADIENT_STOP,
+    D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_F,
 };
 use windows::Win32::Graphics::Direct2D::{
-    D2D1CreateFactory, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL,
-    D2D1_SWEEP_DIRECTION_CLOCKWISE, ID2D1Brush, ID2D1DeviceContext, ID2D1Factory, ID2D1Factory1,
+    D2D1CreateFactory, ID2D1Brush, ID2D1DeviceContext, ID2D1Factory, ID2D1Factory1,
     ID2D1GeometrySink, ID2D1GradientStopCollection, ID2D1PathGeometry, ID2D1RadialGradientBrush,
     ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1,
-    D2D1_BRUSH_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_SOLID,
+    D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+    D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES,
+    D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_SOLID,
     D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE,
     D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_GAMMA_2_2,
     D2D1_LINE_JOIN_ROUND, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT,
-    D2D1_STROKE_STYLE_PROPERTIES, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+    D2D1_STROKE_STYLE_PROPERTIES, D2D1_SWEEP_DIRECTION_CLOCKWISE,
+    D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
@@ -432,17 +433,31 @@ impl Renderer {
             _ if state.cancel_hint => {
                 let arm = 6.0;
                 let (from_a, to_a) = (
-                    Vector2 { X: center.X - arm, Y: center.Y - arm },
-                    Vector2 { X: center.X + arm, Y: center.Y + arm },
+                    Vector2 {
+                        X: center.X - arm,
+                        Y: center.Y - arm,
+                    },
+                    Vector2 {
+                        X: center.X + arm,
+                        Y: center.Y + arm,
+                    },
                 );
                 let (from_b, to_b) = (
-                    Vector2 { X: center.X + arm, Y: center.Y - arm },
-                    Vector2 { X: center.X - arm, Y: center.Y + arm },
+                    Vector2 {
+                        X: center.X + arm,
+                        Y: center.Y - arm,
+                    },
+                    Vector2 {
+                        X: center.X - arm,
+                        Y: center.Y + arm,
+                    },
                 );
                 unsafe {
                     self.set_brush(theme.foreground().with_alpha(0.9 * alpha));
-                    self.context.DrawLine(from_a, to_a, &self.brush, 2.2, &self.stroke_round);
-                    self.context.DrawLine(from_b, to_b, &self.brush, 2.2, &self.stroke_round);
+                    self.context
+                        .DrawLine(from_a, to_a, &self.brush, 2.2, &self.stroke_round);
+                    self.context
+                        .DrawLine(from_b, to_b, &self.brush, 2.2, &self.stroke_round);
                 }
             }
             Some(label) => {
@@ -725,13 +740,7 @@ impl Renderer {
         }
     }
 
-    fn draw_badge(
-        &self,
-        state: &DrawState<'_>,
-        index: usize,
-        total: usize,
-        alpha: f32,
-    ) {
+    fn draw_badge(&self, state: &DrawState<'_>, index: usize, total: usize, alpha: f32) {
         let (x, y, w, h) = centered_rect(state.window_w, state.window_h);
         let badge = D2D_RECT_F {
             left: x + w - 32.0,
