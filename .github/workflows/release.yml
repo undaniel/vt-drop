@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a publicar (debe existir, p. ej. v0.1.0)"
+        required: true
 
 permissions:
   contents: write
@@ -15,8 +20,13 @@ jobs:
   windows:
     name: Windows x64
     runs-on: windows-latest
+    env:
+      # En un tag, `ref_name` es el tag. En una ejecución manual, el input.
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -43,7 +53,7 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item "target/$env:TARGET/release/vtdrop.exe" dist/
           Copy-Item README.md, LICENSE dist/
-          Compress-Archive -Path dist/* -DestinationPath "vtdrop-$env:GITHUB_REF_NAME-windows-x64.zip"
+          Compress-Archive -Path dist/* -DestinationPath "vtdrop-$env:RELEASE_TAG-windows-x64.zip"
 
       - name: Publicar
         shell: pwsh
@@ -51,15 +61,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $assets = @(
-            "vtdrop-$env:GITHUB_REF_NAME-windows-x64.zip",
+            "vtdrop-$env:RELEASE_TAG-windows-x64.zip",
             "target/$env:TARGET/release/vtdrop.exe"
           )
-          gh release view $env:GITHUB_REF_NAME *> $null
+          gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -eq 0) {
-            # Re-etiquetar o relanzar el workflow no debe fallar.
-            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+            # Reetiquetar o relanzar el workflow no debe fallar.
+            gh release upload $env:RELEASE_TAG @assets --clobber
           } else {
-            gh release create $env:GITHUB_REF_NAME @assets `
-              --title "VTDrop $env:GITHUB_REF_NAME" `
+            gh release create $env:RELEASE_TAG @assets `
+              --title "VTDrop $env:RELEASE_TAG" `
+              --verify-tag `
               --generate-notes
           }

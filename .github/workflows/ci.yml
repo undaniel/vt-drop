@@ -74,3 +74,12 @@ jobs:
 
       - name: Build release
         run: cargo build --release --target x86_64-pc-windows-gnu
+
+      # Cualquier push deja un .exe descargable en la pestaña Actions, sin
+      # necesidad de crear un tag.
+      - name: Subir el ejecutable
+        uses: actions/upload-artifact@v4
+        with:
+          name: vtdrop-exe
+          path: target/x86_64-pc-windows-gnu/release/vtdrop.exe
+          if-no-files-found: error
