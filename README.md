@@ -222,7 +222,7 @@ La build GNU, además, se quedaba sin Common Controls v6 porque el linker descar
 </details>
 
 <details>
-<summary>Diferencias con la especificación original (<a href="GUIA.md">GUIA.md</a>)</summary>
+<summary>Diferencias con la especificación original</summary>
 
 - El acrílico real dentro del círculo solo existe en Windows 11 con transparencias; en Windows 10 queda el color sólido del tema (DWM solo ofrece acrílico rectangular).
 - La expansión usa la curva Fluent en vez de un rebote tipo spring.

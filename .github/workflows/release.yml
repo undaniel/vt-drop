@@ -50,8 +50,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME `
-            "vtdrop-$env:GITHUB_REF_NAME-windows-x64.zip" `
-            "target/$env:TARGET/release/vtdrop.exe" `
-            --title "VTDrop $env:GITHUB_REF_NAME" `
-            --generate-notes
+          $assets = @(
+            "vtdrop-$env:GITHUB_REF_NAME-windows-x64.zip",
+            "target/$env:TARGET/release/vtdrop.exe"
+          )
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # Re-etiquetar o relanzar el workflow no debe fallar.
+            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME @assets `
+              --title "VTDrop $env:GITHUB_REF_NAME" `
+              --generate-notes
+          }
