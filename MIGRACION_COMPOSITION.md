@@ -12,7 +12,7 @@
 - Para comparar con el renderer anterior: `set VTDROP_RENDERER=legacy` antes de arrancar. Si la creación del compositor falla, la app recurre sola al renderer antiguo.
 - `cargo test` incluye una prueba que crea un `DesktopWindowTarget` real sobre una ventana oculta y dibuja tres frames; así se validan en CI las firmas WinRT, el dispositivo WARP/hardware y las superficies, sin mostrar nada.
 
-Lo que **no** se implementó de esta propuesta: la capa de ruido del acrílico (requiere un `CompositionEffectBrush`/Win2D) y la migración opcional del menú y del diálogo de la API key, que siguen en DirectComposition v1. Tampoco hay `ExpressionAnimation`: las posiciones se calculan en Rust y se animan con keyframes.
+Lo que **no** se implementó de esta propuesta: la capa de ruido del acrílico (requiere un `CompositionEffectBrush`/Win2D) y la migración del menú y del diálogo de la API key a este árbol de visuales. Esos dos pasaron a controles nativos de Win32 (menú `HMENU` y diálogo con `EDIT`/`BUTTON`), no a Composition. Tampoco hay `ExpressionAnimation`: las posiciones se calculan en Rust y se animan con keyframes.
 
 ---
 

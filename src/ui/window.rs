@@ -3,7 +3,7 @@
 use std::ffi::c_void;
 use std::mem::size_of;
 
-use windows::core::{w, Result as WinResult, BOOL, PCSTR, PCWSTR};
+use windows::core::{w, BOOL, PCSTR, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Dwm::{
     DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_NONE, DWMSBT_TRANSIENTWINDOW,
@@ -11,7 +11,6 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_USE_HOSTBACKDROPBRUSH, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE,
     DWMWCP_ROUND,
 };
-use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::UI::Controls::MARGINS;
@@ -218,33 +217,6 @@ pub fn apply_backdrop(hwnd: HWND, theme: &Theme, mode: BackdropMode) -> Effectiv
     }
 }
 
-pub fn apply_window_region(hwnd: HWND, theme: &Theme, dpi: u32, backdrop: EffectiveBackdrop) {
-    // Win11 DWM rounds the acrylic window itself. On Win10, acrylic would
-    // otherwise paint a square blur, so clip it with a rounded region.
-    if theme.is_win11() || backdrop != EffectiveBackdrop::Acrylic {
-        unsafe {
-            let _ = SetWindowRgn(hwnd, None, true);
-        }
-        return;
-    }
-    let mut rect = windows::Win32::Foundation::RECT::default();
-    if unsafe { windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut rect) }.is_err() {
-        return;
-    }
-    let width = rect.right - rect.left;
-    let height = rect.bottom - rect.top;
-    if width <= 0 || height <= 0 {
-        return;
-    }
-    let radius = (18.0 * dpi as f32 / 96.0).round() as i32;
-    let region = unsafe { CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2) };
-    if !region.is_invalid() {
-        unsafe {
-            let _ = SetWindowRgn(hwnd, Some(region), true);
-        }
-    }
-}
-
 fn enable_acrylic(hwnd: HWND, gradient_color: u32) -> bool {
     let mut policy = AccentPolicy {
         accent_state: ACCENT_ENABLE_ACRYLICBLURBEHIND,
@@ -342,8 +314,4 @@ pub fn dip_to_px(value: f32, dpi: u32) -> i32 {
 
 pub fn px_to_dip(value: i32, dpi: u32) -> f32 {
     value as f32 * 96.0 / dpi.max(96) as f32
-}
-
-pub fn resize_window(hwnd: HWND, x: i32, y: i32, w: i32, h: i32) -> WinResult<()> {
-    unsafe { SetWindowPos(hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE) }
 }
